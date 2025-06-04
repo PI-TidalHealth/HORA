@@ -9,7 +9,7 @@ import streamlit as st
 #Streamlit 页面配置
 st.set_page_config(
     page_title="HORA",
-    page_icon="👋",
+    page_icon="assets/HORA-Webpage-Icon.png",
     layout="wide" 
 )
 
