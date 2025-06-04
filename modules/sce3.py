@@ -242,7 +242,7 @@ def week_analysis():
             st.rerun()
 
     with month_col:
-        if st.button("🔍 Go to month Analysis"):
+        if st.button("🔍 Go to Month Analysis"):
             if st.session_state.analysis_type == "presence":
                 st.session_state.page = "sce2"
             else:

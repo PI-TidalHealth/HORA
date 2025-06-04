@@ -20,7 +20,7 @@ def uploadstep1_page():
         if st.button("OK", key="col_error_ok"):
             st.session_state.pop("col_error")
         return
-
+    st.title("Select Your Columns")
     with st.form("col_selector_form"):
         raw_cols = df.columns.tolist()
         placeholder = [""]   # 让选项中有一个空白
@@ -29,9 +29,9 @@ def uploadstep1_page():
         cd = st.selectbox("Select **Date** column", cols, index=0)
         ci = st.selectbox("Select **In Time** column", cols, index=0)
         co = st.selectbox("Select **Out Time** column", cols, index=0)
-        cc = st.selectbox("Select **Count** column", cols, index=0)
+        cc = st.selectbox("Select **Count** column [Optional]", cols, index=0)
 
-        submit_cols = st.form_submit_button("✅ Process & Save Columns")
+        submit_cols = st.form_submit_button("✅ Process & Save ")
     
     if submit_cols:
         # 检查空值
