@@ -16,11 +16,6 @@ def uploadstep1_page():
     else:
         df = pd.read_excel(uploaded)
 
-    if st.session_state.get("col_error"):
-        st.warning("⚠ Please select all four columns to proceed.")
-        if st.button("OK", key="col_error_ok"):
-            st.session_state.pop("col_error")
-        return
     #select columns
     st.title("Select Your Columns")
     with st.form("col_selector_form"):
