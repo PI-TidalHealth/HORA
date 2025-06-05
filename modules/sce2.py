@@ -152,8 +152,7 @@ def month_analysis():
 
     # 处理标题（只保留一次）
     title1 = st.text_input("Pie Chart Title", "Monthly Demand", key="title1")
-    if len(title1) > 40:
-        title1 = title1[:37] + "..."
+
 
     # 创建饼图
     fig1 = px.pie(
@@ -195,8 +194,7 @@ def month_analysis():
     df2 = df2.reset_index()  # 将 weekday 转为列
 
     title2 = st.text_input("Bar Chart Title", "Total Month Demand by Weekday", key="title2")
-    if len(title2) > 40:
-        title2 = title2[:37] + "..."
+
     fig2 = px.bar(
         df2,
         x='weekday',
@@ -217,11 +215,10 @@ def month_analysis():
         agg_df = _compute_normalized_heatmap(output, start_date, end_date)
 
     title3 = st.text_input("Heatmap Title", "Normalized Demand Heatmap", key="title3")
-    if len(title3) > 40:
-        title3 = title3[:37] + "..."
+
     fig3, ax = plt.subplots(figsize=(20, 5))
     sns.heatmap(agg_df, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
-    ax.set_title(title3, loc='center', fontsize=18, pad=20)
+    ax.set_title(title3,fontdict={'fontsize': 18, 'fontweight': 'bold'},loc='center', pad=20)
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
