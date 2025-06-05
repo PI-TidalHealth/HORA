@@ -287,7 +287,7 @@ def duration_week_analysis():
     back_col, _, month_col = st.columns([1, 8, 1])
     with back_col:
         if st.button("⬅️ Back"):
-            # 清除所有相关的session state
+
             keys_to_remove = [
                 "crna_data",
                 "analysis_type",

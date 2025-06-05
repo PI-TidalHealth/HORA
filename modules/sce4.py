@@ -15,7 +15,7 @@ _WEEKDAY_ORDER  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 
 
 def _parse_time_series(series: pd.Series) -> pd.Series:
-    """Convert 'HH:MM' strings to Timestamps on 1900-01-01."""
+    """Convert 'HH:MM' strings to Timestamp on 1900-01-01."""
     return pd.to_datetime(_REFERENCE_DATE + series.astype(str))
 
 
@@ -51,14 +51,13 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pd.DataFrame:
         bin_starts.astype("datetime64[ns]")
     )
 
-    # 6) Compute overlap-end = minimum(row_end, bin_end) for each cell
+    # Compute overlap-end = minimum(row_end, bin_end) for each cell
     overlap_end = np.minimum(
         end_matrix.astype("datetime64[ns]"),
         bin_ends.astype("datetime64[ns]")
     )
     seconds = (overlap_end.astype('datetime64[s]') - overlap_start.astype('datetime64[s]'))
     delta_seconds = seconds.astype(int)
-    delta_seconds = delta_seconds.astype(int)
     delta_seconds = np.where(delta_seconds < 0, 0, delta_seconds)
     hours_matrix = delta_seconds / 3600.0
 
@@ -78,19 +77,19 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def _compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
     """
-    按 'Month'（Period）列汇总 'Count' 并生成 'MonthLabel'，不改变原始 df。
+    Summarize 'Count' by 'Month' (Period) and generate 'MonthLabel', without modifying the original df.
     """
     df['Date'] = pd.to_datetime(df['Date'])
     df['Month'] = df['Date'].dt.to_period('M')
     monthly_summary = df.groupby('Month')['Count'].sum().reset_index()
     
-    # 确保月份按时间顺序排序
+    # Ensure months are sorted chronologically
     monthly_summary = monthly_summary.sort_values('Month')
     
     monthly_summary['MonthLabel'] = (
         monthly_summary['Month']
         .dt.to_timestamp()
-        .dt.strftime('%b %y')     # 格式化成 'Jan 25'
+        .dt.strftime('%b %y')     # Format as 'Jan 25'
     )
 
     return monthly_summary
@@ -99,8 +98,8 @@ def _compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def _weekday_duration_summary(df_with_matrix: pd.DataFrame) -> pd.DataFrame:
     """
-    Group by weekday on columns 0–23 to get total duration per weekday.
-    Returns a 7×1 DataFrame 'TotalDuration'.
+    Group by 'weekday' on the DataFrame that already has columns 0–23,
+    returning a 7×1 DataFrame 'TotalDuration'.
     """
     summed = df_with_matrix.groupby('weekday')[list(range(24))].sum()
     summed['TotalDuration'] = summed.sum(axis=1)
@@ -137,25 +136,25 @@ def duration_month_analysis():
         st.info("Please upload a file to begin.")
         return
 
-    # 复制一份，避免污染 session_state
+    # Copy DataFrame to avoid mutating session_state
     df = st.session_state['crna_data'].copy()
 
-    # 1) 转换日期与 Month、weekday
+    # 1) Convert 'Date' to datetime and add 'Month' and 'weekday'
     df['Date'] = pd.to_datetime(df['Date'])
     df['Month'] = df['Date'].dt.to_period('M')
     df['weekday'] = df['Date'].dt.day_name()
 
-    # —— 2) 先把每一行拆成 24 列 duration —— #
-    with st.spinner("Computing per‐row duration matrix…"):
+    # —— 2) First, build a 24-column duration matrix for each row —— #
+    with st.spinner("Computing per-row duration matrix…"):
         output = _compute_duration_matrix(df)
-        # 这里的 output 一定要包含列： "Month", 0,1,2,…,23
+        # 'output' now includes columns "Month", 0,1,2,…,23
 
-    # —— 3) 用刚才的 output 再做 Monthly 聚合 —— #
+    # —— 3) Next, compute monthly summary (cache + spinner) —— #
     with st.spinner("Computing monthly duration summary…"):
         monthly_summary = _compute_monthly_summary(output)
-        # 这样月度汇总才能正确拿到 0…23 列并 sum()
+        # This ensures the monthly aggregation correctly includes columns 0…23
 
-    # —— 4) 画饼图 —— #
+    # —— 4) Draw pie chart —— #
     fig1 = px.pie(
         monthly_summary,
         values='Count',
@@ -170,7 +169,7 @@ def duration_month_analysis():
 
     fig1.update_layout(title={"text": title1, "x": 0.5, "xanchor": "center"})
 
-    # —— 5) 画 weekday bar 图 —— #
+    # —— 5) Draw weekday bar chart —— #
     with st.spinner("Computing total duration by weekday…"):
         df2 = _weekday_duration_summary(output)
     df2 = df2.reset_index().round()
@@ -188,7 +187,7 @@ def duration_month_analysis():
     fig2.update_traces(marker_color=single_color)
     fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
 
-    # —— 6) 画 normalized heatmap —— #
+    # —— 6) Draw normalized heatmap —— #
     start_date = df['Date'].min().strftime('%Y-%m-%d')
     end_date   = df['Date'].max().strftime('%Y-%m-%d')
     with st.spinner("Computing normalized heatmap data…"):
@@ -198,11 +197,11 @@ def duration_month_analysis():
 
     fig3, ax = plt.subplots(figsize=(20, 5))
     sns.heatmap(agg_df, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
-    ax.set_title(title3,fontdict={'fontsize': 18, 'fontweight': 'bold'},loc='center', pad=20)
+    ax.set_title(title3, fontdict={'fontsize': 18, 'fontweight': 'bold'}, loc='center', pad=20)
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
-    # —— 7) Render pie chart + downloads —— #
+    # —— 7) Render pie chart + download buttons —— #
     st.subheader("Monthly Total Duration")
     st.plotly_chart(fig1, use_container_width=True)
     col_l, col_c, col_r = st.columns([3,1,3])
@@ -214,7 +213,7 @@ def duration_month_analysis():
             csv1 = monthly_summary.to_csv(index=False).encode("utf-8")
             st.download_button("📥 CSV", data=csv1, file_name="monthly_duration.csv", mime="text/csv")
 
-    # —— 8) Render bar chart + downloads —— #
+    # —— 8) Render bar chart + download buttons —— #
     st.subheader("Total Duration by Weekday")
     st.plotly_chart(fig2, use_container_width=True)
     col_l, col_c, col_r = st.columns([3,1,3])
@@ -226,7 +225,7 @@ def duration_month_analysis():
             csv2 = df2.to_csv(index=False).encode("utf-8")
             st.download_button("📥 CSV", data=csv2, file_name="weekday_duration.csv", mime="text/csv")
 
-    # —— 9) Render heatmap + downloads —— #
+    # —— 9) Render heatmap + download buttons —— #
     st.subheader("Normalized Duration Heatmap")
     st.pyplot(fig3)
     col_l, col_c, col_r = st.columns([3,1,3])
@@ -242,7 +241,7 @@ def duration_month_analysis():
     back_col, _, week_col = st.columns([1,8,1])
     with back_col:
         if st.button("⬅️ Back"):
-            # 清除所有相关的session state
+            # Clear all related session_state values
             keys_to_remove = [
                 "crna_data",
                 "analysis_type",
