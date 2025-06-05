@@ -144,12 +144,15 @@ def week_analysis():
 
     # —— 6. 用户自定义标题 —— #
     default_title = f"Demand for {selected_wk}"
+    key = f"title_{selected_wk}"
+    if key not in st.session_state:
+    # First time seeing this week: preload with the default
+        st.session_state[key] = default_title
     title_input = st.text_input(
         label=f"{selected_wk} Chart Title",
-        value=default_title,
-        key=f"title_{selected_wk}"
+        value=st.session_state[key],      # only used on first render, thereafter the stored value
+    key=key
     )
-
     # —— 7. 绘制这周的热力图 —— #
     fig, ax = plt.subplots(figsize=(20, 5))
     sns.heatmap(hm_data, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
@@ -181,19 +184,36 @@ def week_analysis():
     # —— 9. 右侧：下载所有 Weeks 的 PNG/CSV —— #
     with col_r:
         with st.expander("💾 Save All Weeks", expanded=False):
-            # ZIP 所有 PNG
+            # Create an in‐memory ZIP file
             png_zip = io.BytesIO()
             with zipfile.ZipFile(png_zip, mode="w") as zf:
                 for wk in _WEEKS_LIST:
+                    # 1. Re‐compute (or load) the heatmap data for this week:
                     df_hm = _compute_week_hm_data(weekfile_detail, wk)
+
+                    # 2. Get the user’s custom title for this week from session_state:
+                    #    If the user never changed it, it'll default to "Demand for {wk}".
+                    title_key = f"title_{wk}"
+                    user_title = st.session_state.get(title_key, f"Demand for {wk}")
+
+                    # 3. Build a small figure for this week’s heatmap:
                     fig_w, ax_w = plt.subplots(figsize=(10, 3))
-                    sns.heatmap(df_hm, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax_w)
-                    ax_w.set_title(f"Average Demand for {wk}", loc="center")
+                    sns.heatmap(df_hm, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
+
+                    # 4. Use the user’s custom title here (instead of a hard‐coded string):
+                    ax_w.set_title(user_title, loc="center")
+
                     plt.tight_layout()
+
+                    # 5. Save the figure into a bytes buffer:
                     buf_w = io.BytesIO()
                     fig_w.savefig(buf_w, format="png", dpi=150, bbox_inches="tight")
                     plt.close(fig_w)
+
+                    # 6. Write that buffer to the ZIP under a filename you choose:
+                    #    You could use the week name as the filename too, e.g. "Week1_heatmap.png"
                     zf.writestr(f"{wk}_heatmap.png", buf_w.getvalue())
+
             png_zip.seek(0)
             st.download_button(
                 label="🏞️ PNGs",

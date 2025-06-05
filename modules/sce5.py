@@ -178,15 +178,29 @@ def duration_week_analysis():
     if selected_wk == 'Week 5':
         raw = raw.fillna(0)
     hm_matrix = (raw.div(3).round().astype(int))
-
+    for wk in _WEEKS_LIST:
+        key = f"title_{wk}"
+        default = f"Average Demand Heatmap - {wk}"
+        if key not in st.session_state:
+            st.session_state[key] = default
     # 5) Title input for heatmap
-    default_title = f"Average Demand Heatmap - {selected_wk}"
-    title_input = st.text_input(label=f"{selected_wk} Chart Title", value=default_title, key=f"title_{selected_wk}")
 
-    # 6) Plot heatmap
+    key = f"title_{selected_wk}"
+    title_input = st.text_input(
+        label=f"{selected_wk} Chart Title",
+        value=st.session_state[key],  # will be default on first run, or user‐edited thereafter
+        key=key
+    )
+
+    # 7) Plot this week's heatmap using title_input
     fig, ax = plt.subplots(figsize=(20, 5))
-    sns.heatmap(hm_matrix, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
-    ax.set_title(title_input, fontdict={'fontsize': 18, 'fontweight': 'bold'}, loc='center', pad=20)
+    sns.heatmap(hm_matrix, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax)
+    ax.set_title(
+        title_input,
+        fontdict={"fontsize": 18, "fontweight": "bold"},
+        loc="center",
+        pad=20
+    )
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
     st.pyplot(fig, use_container_width=True)
@@ -215,54 +229,58 @@ def duration_week_analysis():
     # —— Right: Download all weeks' PNGs and CSVs zipped —— #
     with col_r:
         with st.expander("💾 Save All Weeks", expanded=False):
-            # 7) ZIP all PNGs
+            # Create an in-memory ZIP file
             png_zip = io.BytesIO()
             with zipfile.ZipFile(png_zip, mode="w") as zf:
                 for wk in _WEEKS_LIST:
-                    sub_df = df_full[df_full['week_of_month'] == wk]
-                    raw_sub = sub_df.groupby('weekday')[list(range(24))].sum().reindex(_WEEKDAY_ORDER).fillna(0)
-                    if wk == 'Week 5':
+                    # 1) Recompute this week's heatmap data (exactly as you did earlier)
+                    sub_df = df_full[df_full["week_of_month"] == wk]
+                    raw_sub = (
+                        sub_df.groupby("weekday")[list(range(24))]
+                        .sum()
+                        .reindex(_WEEKDAY_ORDER)
+                        .fillna(0)
+                    )
+                    if wk == "Week 5":
                         raw_sub = raw_sub.fillna(0)
-                    hm_sub = (raw_sub.div(3).round().astype(int))
+                    hm_sub = raw_sub.div(3).round().astype(int)
 
+                    # 2) Look up whatever the user typed for this week’s title
+                    title_key = f"title_{wk}"
+                    user_title = st.session_state.get(title_key, f"Average Demand Heatmap - {wk}")
+
+                    # 3) Draw a new figure for this week
                     fig_w, ax_w = plt.subplots(figsize=(10, 3))
-                    sns.heatmap(hm_sub, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax_w)
-                    ax_w.set_title(f"Average Demand Heatmap - {wk}", loc='center', fontsize=14, fontweight='bold')
+                    sns.heatmap(hm_sub, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
+
+                    # 4) Set the title to whatever the user entered
+                    ax_w.set_title(
+                        user_title,
+                        loc="center",
+                        fontsize=14,
+                        fontweight="bold",
+                    )
                     ax_w.set_ylabel("DOW", fontsize=12)
                     plt.tight_layout()
 
+                    # 5) Save that figure into a bytes buffer
                     buf_w = io.BytesIO()
                     fig_w.savefig(buf_w, format="png", dpi=150, bbox_inches="tight")
                     plt.close(fig_w)
+
+                    # 6) Write the buffer into the ZIP under a filename of your choice
+                    #    (Here we just use the week name + ".png". You could sanitize user_title if
+                    #     you wanted the filename itself to match the custom title.)
                     zf.writestr(f"{wk}_heatmap.png", buf_w.getvalue())
 
             png_zip.seek(0)
+
+            # 7) Expose the ZIP for download
             st.download_button(
                 label="🏞️ All Weeks PNGs",
                 data=png_zip.getvalue(),
                 file_name="all_weeks_heatmaps.zip",
-                mime="application/zip"
-            )
-
-            # 8) ZIP all CSVs
-            csv_zip = io.BytesIO()
-            with zipfile.ZipFile(csv_zip, mode="w") as zf2:
-                for wk in _WEEKS_LIST:
-                    sub_df = df_full[df_full['week_of_month'] == wk]
-                    raw_sub = sub_df.groupby('weekday')[list(range(24))].sum().reindex(_WEEKDAY_ORDER).fillna(0)
-                    if wk == 'Week 5':
-                        raw_sub = raw_sub.fillna(0)
-                    hm_sub = (raw_sub.div(3).round().astype(int))
-
-                    csv_bytes = hm_sub.to_csv(index=False).encode("utf-8")
-                    zf2.writestr(f"{wk}_heatmap_data.csv", csv_bytes)
-
-            csv_zip.seek(0)
-            st.download_button(
-                label="📥 All Weeks CSVs",
-                data=csv_zip.getvalue(),
-                file_name="all_weeks_heatmap_data.zip",
-                mime="application/zip"
+                mime="application/zip",
             )
 
     # —— Navigation Buttons —— #
