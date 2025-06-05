@@ -182,8 +182,6 @@ def duration_week_analysis():
     # 5) Title input for heatmap
     default_title = f"Average Demand Heatmap - {selected_wk}"
     title_input = st.text_input(label=f"{selected_wk} Chart Title", value=default_title, key=f"title_{selected_wk}")
-    if len(title_input) > 40:
-        title_input = title_input[:37] + "..."
 
     # 6) Plot heatmap
     fig, ax = plt.subplots(figsize=(20, 5))

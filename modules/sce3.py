@@ -149,8 +149,6 @@ def week_analysis():
         value=default_title,
         key=f"title_{selected_wk}"
     )
-    if len(title_input) > 40:
-        title_input = title_input[:37] + "..."
 
     # —— 7. 绘制这周的热力图 —— #
     fig, ax = plt.subplots(figsize=(20, 5))
