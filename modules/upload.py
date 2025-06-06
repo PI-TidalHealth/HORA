@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import streamlit as st
-import plotly.express as px
+import plotly.express as px 
 from pathlib import Path
 from modules.layout import set_narrow,set_fullwidth
 def render_upload_page():
