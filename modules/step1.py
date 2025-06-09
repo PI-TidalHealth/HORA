@@ -10,11 +10,14 @@ from modules.layout import set_narrow,set_fullwidth
 def uploadstep1_page():
     #upload file
     uploaded = st.session_state.get("uploaded_file", None)
-    name = uploaded.name.lower()
-    if name.endswith(".csv"):
+    try:
         df = pd.read_csv(uploaded)
-    else:
-        df = pd.read_excel(uploaded)
+    except Exception as e:
+        try:
+            df = pd.read_excel(uploaded)
+        except Exception as excel_e:
+            st.error("Please make sure it is either a valid CSV or Excel file.")
+            return
 
     #select columns
     st.title("Select Your Columns")
