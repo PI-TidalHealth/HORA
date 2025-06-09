@@ -218,7 +218,7 @@ def duration_week_analysis():
                 file_name=f"{selected_wk}_heatmap.png",
                 mime="image/png"
             )
-            csv_bytes = hm_matrix.to_csv(index=False).encode("utf-8")
+            csv_bytes = hm_matrix.to_csv(index=True).encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv_bytes,
@@ -282,7 +282,32 @@ def duration_week_analysis():
                 file_name="all_weeks_heatmaps.zip",
                 mime="application/zip",
             )
+            csv_zip = io.BytesIO()
+            with zipfile.ZipFile(csv_zip, mode="w") as zf:
+                for wk in _WEEKS_LIST:
+                    # Recompute this week's heatmap data
+                    sub_df = df_full[df_full["week_of_month"] == wk]
+                    raw_sub = (
+                        sub_df.groupby("weekday")[list(range(24))]
+                        .sum()
+                        .reindex(_WEEKDAY_ORDER)
+                        .fillna(0)
+                    )
+                    if wk == "Week 5":
+                        raw_sub = raw_sub.fillna(0)
+                    hm_sub = raw_sub.div(3).round().astype(int)
+                    
+                    # Save CSV with index (weekday)
+                    csv_bytes = hm_sub.to_csv(index=True).encode("utf-8")
+                    zf.writestr(f"{wk}_heatmap_data.csv", csv_bytes)
 
+            csv_zip.seek(0)
+            st.download_button(
+                label="📥 All Weeks CSVs",
+                data=csv_zip.getvalue(),
+                file_name="all_weeks_heatmap_data.zip",
+                mime="application/zip",
+            )
     # —— Navigation Buttons —— #
     back_col, _, month_col = st.columns([1, 8, 1])
     with back_col:

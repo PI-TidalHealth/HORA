@@ -175,7 +175,7 @@ def week_analysis():
                 file_name=f"{selected_wk}_heatmap.png",
                 mime="image/png"
             )
-            csv_bytes = hm_data.to_csv(index=False).encode("utf-8")
+            csv_bytes = hm_data.to_csv(index=True).encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv_bytes,
@@ -227,7 +227,7 @@ def week_analysis():
             with zipfile.ZipFile(csv_zip, mode="w") as zf2:
                 for wk in _WEEKS_LIST:
                     df_hm = _compute_week_hm_data(weekfile_detail, wk)
-                    csv_bytes = df_hm.to_csv(index=False).encode("utf-8")
+                    csv_bytes = df_hm.to_csv(index=True).encode("utf-8")
                     zf2.writestr(f"{wk}_heatmap_data.csv", csv_bytes)
             csv_zip.seek(0)
             st.download_button(

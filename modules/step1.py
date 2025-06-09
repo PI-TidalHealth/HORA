@@ -32,25 +32,27 @@ def uploadstep1_page():
     #check the data
     if submit_cols:
         # empty value
-        if "" in (cd, ci, co, cc):
-            st.warning("⚠ Please select all four columns to proceed.")
+        if "" in (cd, ci, co):
+            st.warning("⚠ Please select first three columns to proceed.")
             return
-        
+
         # duplicate columns
-        selected_cols = [cd, ci, co, cc]
+        selected_cols = [cd, ci, co] + ([cc] if cc and cc !="" else [])
         if len(selected_cols) != len(set(selected_cols)):
             st.error("❌ Duplicate columns selected! Please select different columns for each field.")
             return
-
-        # check count column
-        non_empty_counts = df[cc].dropna()
-        numeric_mask = pd.to_numeric(non_empty_counts, errors='coerce').isna()
-        error_indices = non_empty_counts[numeric_mask].index.tolist()
-        count_error_count = len(error_indices)
-
-        # process the  data
-        df2 = df[[cd, ci, co, cc]].reset_index(drop=True)  
-        df2.columns = ['Date','In Room','Out Room','Count']
+        
+        df2 = df[[cd, ci, co]].reset_index(drop=True)  
+        df2.columns = ['Date','In Room','Out Room']
+        if cc and cc!="":
+            df2['Count']=df[cc]
+            non_empty_counts=df2['count'].dropna()
+            numeric_mask = pd.to_numeric(non_empty_counts, errors='coerce').isna()
+            error_indices = non_empty_counts[numeric_mask].index.tolist()
+            count_error_count = len(error_indices)
+        else:
+            df2['Count']=1
+            count_error_count=0
 
     
         # normalize data
@@ -116,17 +118,18 @@ def uploadstep1_page():
             st.warning(f"⚠️ Found {out_time_error_count} invalid Out Room time(s):\n{error_msg}")
 
         # process Count column
-        original_counts = df2['Count'].copy()
-        df2['Count'] = pd.to_numeric(df2['Count'], errors='coerce')
-        invalid_counts = df2[df2['Count'].isna()].index.tolist()
-        count_error_count = len(invalid_counts)
-        
-        if invalid_counts:
-            error_details = [f"Row {idx+1}: '{original_counts[idx]}'" for idx in invalid_counts[:5]]
-            error_msg = "\n".join(error_details)
-            if len(invalid_counts) > 5:
-                error_msg += f"\n... and {len(invalid_counts) - 5} more errors"
-            st.warning(f"⚠️ Found {count_error_count} invalid count value(s). These will be set to 1:\n{error_msg}")
+        if cc and cc!="":
+            original_counts = df2['Count'].copy()
+            df2['Count'] = pd.to_numeric(df2['Count'], errors='coerce')
+            invalid_counts = df2[df2['Count'].isna()].index.tolist()
+            count_error_count = len(invalid_counts)
+            
+            if invalid_counts:
+                error_details = [f"Row {idx+1}: '{original_counts[idx]}'" for idx in invalid_counts[:5]]
+                error_msg = "\n".join(error_details)
+                if len(invalid_counts) > 5:
+                    error_msg += f"\n... and {len(invalid_counts) - 5} more errors"
+                st.warning(f"⚠️ Found {count_error_count} invalid count value(s). These will be set to 1:\n{error_msg}")
 
         # sum the errors
         total_errors = date_error_count + in_time_error_count + out_time_error_count + count_error_count
