@@ -49,7 +49,7 @@ def uploadstep1_page():
         df2.columns = ['Date','In Room','Out Room']
         if cc and cc!="":
             df2['Count']=df[cc]
-            non_empty_counts=df2['count'].dropna()
+            non_empty_counts=df2['Count'].dropna()
             numeric_mask = pd.to_numeric(non_empty_counts, errors='coerce').isna()
             error_indices = non_empty_counts[numeric_mask].index.tolist()
             count_error_count = len(error_indices)
