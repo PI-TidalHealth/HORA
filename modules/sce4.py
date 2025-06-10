@@ -1,247 +1,403 @@
-import pandas as pd
-import numpy as np
+import polars as pl
+import pandas as _pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import streamlit as st
 import plotly.express as px
 import io
+import numpy as np
+import pandas as pd
 
-# —— Global constants and precomputations —— #
+# Constants
 _REFERENCE_DATE = "1900-01-01 "
-_TIME_BIN_START = pd.to_datetime([f"{_REFERENCE_DATE}{h:02d}:00" for h in range(24)])
-_TIME_BIN_END   = pd.to_datetime([f"{_REFERENCE_DATE}{(h+1)%24:02d}:00" for h in range(24)])
-_WEEKDAY_ORDER  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+_TIME_FORMAT = "%H:%M"
+_DATETIME_FORMAT = "%Y-%m-%d %H:%M"
+_TIME_BIN_START = [f"{_REFERENCE_DATE}{h:02d}:00" for h in range(24)]
+_TIME_BIN_END = [f"{_REFERENCE_DATE}{(h+1)%24:02d}:00" for h in range(24)]
 
+_WEEKDAY_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-def _parse_time_series(series: pd.Series) -> pd.Series:
-    """Convert 'HH:MM' strings to Timestamp on 1900-01-01."""
-    return pd.to_datetime(_REFERENCE_DATE + series.astype(str))
+def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
+    """Parse time series data and handle edge cases."""
+    # Drop rows with null values in In Room or Out Room
+    temp = df.filter(
+        ~pl.col('In Room').is_null() & 
+        ~pl.col('Out Room').is_null()
+    )
+    
 
+    temp = temp.with_columns([
+        (pl.lit(_REFERENCE_DATE) + pl.col('In Room')).alias('In_str'),
+        (pl.lit(_REFERENCE_DATE) + pl.col('Out Room')).alias('Out_str')
+    ])
+    
+    # Then convert to datetime by adding reference date
+    temp = temp.with_columns([
+        pl.col('In_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('In_dt'),
+        pl.col('Out_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('Out_dt')
+    ])
+    
+    # Handle cross-day cases
+    temp = temp.with_columns([
+        pl.when(pl.col('Out_dt') < pl.col('In_dt'))
+            .then(pl.col('Out_dt') + timedelta(days=1))
+            .otherwise(pl.col('Out_dt'))
+            .alias('Out_dt')
+    ])
+    
+    return temp
 
 @st.cache_data(show_spinner=False)
-def _compute_duration_matrix(df: pd.DataFrame) -> pd.DataFrame:
+def _compute_duration_matrix(df: pl.DataFrame) -> pl.DataFrame:
     """
     Vectorize each row's In/Out into a 24-column matrix of durations (hours).
     Returns original rows + 24 columns (0–23) of duration values.
     """
-    temp = (
-        df
-        .dropna(subset=['In Room', 'Out Room'])
-        .reset_index(drop=True)
-        .copy()
-    )
-    temp['In Room']  = temp['In Room'].astype(str).str.slice(0, 5)
-    temp['Out Room'] = temp['Out Room'].astype(str).str.slice(0, 5)
-
-    in_times  = _parse_time_series(temp['In Room'])
-    out_times = _parse_time_series(temp['Out Room'])
-    wrap_mask = out_times < in_times
-    out_times = out_times.where(~wrap_mask, out_times + pd.Timedelta(days=1))
-
-    # Compute duration overlap matrix (N x 24)
-    start_matrix = in_times.values.reshape(-1, 1)
-    end_matrix   = out_times.values.reshape(-1, 1)
-    bin_starts   = _TIME_BIN_START.values.reshape(1, -1)
-    bin_ends     = _TIME_BIN_END.values.reshape(1, -1)
-
-    # Overlap duration in seconds per bin
-    overlap_start = np.maximum(
-        start_matrix.astype("datetime64[ns]"),
-        bin_starts.astype("datetime64[ns]")
-    )
-
-    # Compute overlap-end = minimum(row_end, bin_end) for each cell
-    overlap_end = np.minimum(
-        end_matrix.astype("datetime64[ns]"),
-        bin_ends.astype("datetime64[ns]")
-    )
-    seconds = (overlap_end.astype('datetime64[s]') - overlap_start.astype('datetime64[s]'))
-    delta_seconds = seconds.astype(int)
-    delta_seconds = np.where(delta_seconds < 0, 0, delta_seconds)
-    hours_matrix = delta_seconds / 3600.0
-
-    # Multiply by Count if present
-    counts = temp['Count'].astype(int).values.reshape(-1, 1)
-    duration_matrix = hours_matrix * counts
-
-    dur_df = pd.DataFrame(
-        duration_matrix,
-        index=temp.index,
-        columns=list(range(24))
-    )
-    result = pd.concat([temp.reset_index(drop=True), dur_df.reset_index(drop=True)], axis=1)
-    return result
-
+    # Convert to pandas temporarily for easier time processing
+    temp_pd = df.to_pandas()
+    
+    # Drop rows with null values
+    temp_pd = temp_pd.dropna(subset=['In Room', 'Out Room']).copy()
+    
+    if len(temp_pd) == 0:
+        # Return empty result with all required columns
+        empty_cols = {str(h): 0.0 for h in range(24)}
+        return pl.from_pandas(temp_pd.assign(**empty_cols))
+    
+    # Parse times using pandas (more forgiving)
+    try:
+        temp_pd['In_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['In Room'].astype(str))
+        temp_pd['Out_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['Out Room'].astype(str))
+    except:
+        # Fallback: try parsing as datetime directly
+        temp_pd['In_time'] = pd.to_datetime(temp_pd['In Room'])
+        temp_pd['Out_time'] = pd.to_datetime(temp_pd['Out Room'])
+    
+    # Handle cross-day cases
+    mask = temp_pd['Out_time'] < temp_pd['In_time']
+    temp_pd.loc[mask, 'Out_time'] += pd.Timedelta(days=1)
+    
+    # Ensure Count is integer
+    temp_pd['Count'] = temp_pd['Count'].astype(int)
+    
+    # Create 24 hour columns with duration values
+    for h in range(24):
+        hour_start = pd.to_datetime(f'1900-01-01 {h:02d}:00:00')
+        hour_end = pd.to_datetime(f'1900-01-01 {(h+1)%24:02d}:00:00')
+        if h == 23:  # Handle 23:00-00:00 (next day)
+            hour_end = pd.to_datetime('1900-01-02 00:00:00')
+        
+        # Calculate overlap duration in hours
+        overlap_start = np.maximum(
+            temp_pd['In_time'].values.astype('datetime64[ns]'),
+            hour_start.to_datetime64()
+        )
+        overlap_end = np.minimum(
+            temp_pd['Out_time'].values.astype('datetime64[ns]'),
+            hour_end.to_datetime64()
+        )
+        duration = (overlap_end - overlap_start).astype('timedelta64[s]').astype(float) / 3600.0
+        duration = np.where(duration < 0, 0, duration)
+        
+        # Multiply by Count
+        temp_pd[str(h)] = (duration * temp_pd['Count']).astype(float)
+    
+    # Convert back to polars
+    return pl.from_pandas(temp_pd)
 
 @st.cache_data(show_spinner=False)
-def _compute_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Summarize 'Count' by 'Month' (Period) and generate 'MonthLabel', without modifying the original df.
-    """
-    df['Date'] = pd.to_datetime(df['Date'])
-    df['Month'] = df['Date'].dt.to_period('M')
-    monthly_summary = df.groupby('Month')['Count'].sum().reset_index()
-    
-    # Ensure months are sorted chronologically
-    monthly_summary = monthly_summary.sort_values('Month')
-    
-    monthly_summary['MonthLabel'] = (
-        monthly_summary['Month']
-        .dt.to_timestamp()
-        .dt.strftime('%b %y')     # Format as 'Jan 25'
+def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
+    """Summarize 'Count' by 'Month' (Period) and generate 'MonthLabel'."""
+    monthly_summary = (
+        df.with_columns([
+            pl.col('Date').dt.strftime('%Y-%m').alias('Month'),
+            pl.col('Date').dt.strftime('%b %y').alias('MonthLabel')
+        ])
+        .group_by(['Month', 'MonthLabel'])
+        .agg([
+            pl.col('Count').sum().alias('Count')
+        ])
+        .sort('Month')
     )
-
+    
     return monthly_summary
 
+@st.cache_data(show_spinner=False)
+def _weekday_total_summary(df_with_time: pl.DataFrame) -> pl.DataFrame:
+    """
+    Group by 'weekday' on a DataFrame that already contains 24 columns (0–23) 
+    and a 'weekday' column, returning a 7×1 DataFrame named 'Total'.
+    """
+    # Get all hour columns
+    hour_cols = [str(h) for h in range(24)]
+    # 先生成 Total 列
+    df_with_time = df_with_time.with_columns(
+        pl.sum_horizontal(hour_cols).alias('Total')
+    )
+    # 再 group_by
+    summed = (
+        df_with_time
+        .group_by('weekday')
+        .agg([
+            pl.col('Total').sum().alias('Total')
+        ])
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+        .sort('weekday')
+    )
+    return summed
 
 @st.cache_data(show_spinner=False)
-def _weekday_duration_summary(df_with_matrix: pd.DataFrame) -> pd.DataFrame:
+def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
     """
-    Group by 'weekday' on the DataFrame that already has columns 0–23,
-    returning a 7×1 DataFrame 'TotalDuration'.
+    1. Sum by 'weekday' × 24 hours to get raw_counts (7×24).
+    2. Count how many times each weekday occurs between start_date and end_date.
+    3. Divide raw_counts by day_counts, round, and return an integer-format heatmap matrix.
     """
-    summed = df_with_matrix.groupby('weekday')[list(range(24))].sum()
-    summed['TotalDuration'] = summed.sum(axis=1)
-    return summed.reindex(_WEEKDAY_ORDER)[['TotalDuration']]
+    # Get all hour columns
+    hour_cols = [str(h) for h in range(24)]
+    
+    # Sum by weekday for each hour
+    raw = (
+        df_with_time
+        .group_by('weekday')
+        .agg([
+            pl.sum(col).alias(col) for col in hour_cols
+        ])
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+        .sort('weekday')
+    )
+    
+    # Convert start/end to python datetime for robustness
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt   = datetime.strptime(end_date, '%Y-%m-%d')
 
+    date_list = []
+    cur = start_dt
+    while cur <= end_dt:
+        date_list.append(cur)
+        cur += timedelta(days=1)
 
-@st.cache_data(show_spinner=False)
-def _compute_normalized_duration_heatmap(df_with_matrix: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
-    """
-    1. Group by 'weekday' × 24 columns => raw durations (7×24).
-    2. Count days in each weekday between start_date and end_date => days_per_weekday (7,).
-    3. Divide raw by days, round to int.
-    """
-    raw = df_with_matrix.groupby('weekday')[list(range(24))].sum().reindex(_WEEKDAY_ORDER)
-    drange = pd.date_range(start=start_date, end=end_date)
-    day_counts = drange.day_name().value_counts().reindex(_WEEKDAY_ORDER).fillna(0).astype(int)
-    normalized = (raw.div(day_counts, axis=0)).round().astype(int)
-    return normalized.fillna(0)
+    day_counts = (
+        pl.DataFrame({'date': date_list})
+        .with_columns([
+            pl.col('date').dt.strftime('%A').alias('weekday')
+        ])
+        .group_by('weekday')
+        .count()
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+        .sort('weekday')
+    )
 
+    
+    # Normalize the counts
+    normalized = raw.with_columns([
+        (pl.col(col) / day_counts.get_column('count')).round().cast(pl.Int64).alias(col)
+        for col in hour_cols
+    ])
+    
+    return normalized.fill_null(0)
 
 def duration_month_analysis():
+    """Main function for monthly analysis visualization."""
+    # Apply custom CSS
     st.markdown(
         """
         <style>
-        div[data-testid="stExpander"] { max-width: 100px; }
-        div[role="button"][aria-expanded] { padding: 0.25rem 0.5rem; }
-        div[data-testid="stExpander"] > div { padding: 0.5rem; }
+        div[data-testid="stExpander"] {
+            max-width: 100px;
+        }
+        div[role="button"][aria-expanded] {
+            padding: 0.25rem 0.5rem;
+        }
+        div[data-testid="stExpander"] > div {
+            padding: 0.5rem;
+        }
         </style>
         """,
         unsafe_allow_html=True
     )
 
+    # Check if data exists
     if 'crna_data' not in st.session_state:
         st.info("Please upload a file to begin.")
         return
 
-    # Copy DataFrame to avoid mutating session_state
-    df = st.session_state['crna_data'].copy()
+    # Initialize DataFrame
+    df = st.session_state['crna_data']
+    
+    # Convert pandas DataFrame to polars if needed
+    if isinstance(df, _pd.DataFrame):
+        df = pl.from_pandas(df)
+    df = df.clone()
+    
+    # Standardize Date column
+    df = df.with_columns([
+        pl.col('Date')
+            .cast(pl.String)
+            .str.strptime(pl.Date, format='%Y/%m/%d')
+            .alias('Date')
+    ])
+    
+    # Add weekday column
+    df = df.with_columns([
+        pl.col('Date').dt.strftime('%A').alias('weekday')
+    ])
 
-    # 1) Convert 'Date' to datetime and add 'Month' and 'weekday'
-    df['Date'] = pd.to_datetime(df['Date'])
-    df['Month'] = df['Date'].dt.to_period('M')
-    df['weekday'] = df['Date'].dt.day_name()
+    # —— 2. Monthly summary (with cache + spinner) —— #
+    with st.spinner("Calculating monthly summary…"):
+        monthly_summary = _compute_monthly_summary(df)
 
-    # —— 2) First, build a 24-column duration matrix for each row —— #
-    with st.spinner("Computing per-row duration matrix…"):
-        output = _compute_duration_matrix(df)
-        # 'output' now includes columns "Month", 0,1,2,…,23
+    # Handle title for pie chart (only initialize once)
+    title1 = st.text_input("Pie Chart Title", "Monthly Duration", key="title1")
 
-    # —— 3) Next, compute monthly summary (cache + spinner) —— #
-    with st.spinner("Computing monthly duration summary…"):
-        monthly_summary = _compute_monthly_summary(output)
-        # This ensures the monthly aggregation correctly includes columns 0…23
-
-    # —— 4) Draw pie chart —— #
+    # Create pie chart
     fig1 = px.pie(
-        monthly_summary,
+        monthly_summary.to_pandas(),
         values='Count',
         names='MonthLabel',
-        hole=0.3
+        hole=0.3,
+        category_orders={"MonthLabel": monthly_summary.get_column('MonthLabel').to_list()},
+        labels={'MonthLabel': 'Month', 'Count': 'Duration (hours)'},
+        custom_data=['Count']
     )
+    
+    # Update all traces and layout at once
+    fig1.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        hovertemplate="Month: %{label}<br>Duration: %{value} hours<extra></extra>"
+    )
+    
     fig1.update_layout(
-        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.1, yanchor="top"),
-        template="plotly_white"
+        legend=dict(
+            orientation="h",
+            x=0.5, xanchor="center",
+            y=-0.1, yanchor="top"
+        ),
+        template="plotly_white",
+        title={"text": title1, "x": 0.5, "xanchor": "center"},
+        margin=dict(t=50, l=20, r=20, b=50),
+        height=450
     )
-    title1 = st.text_input("Pie Chart Title", "Monthly Total Duration", key="title1")
 
-    fig1.update_layout(title={"text": title1, "x": 0.5, "xanchor": "center"})
+    # —— 3. Compute Duration matrix (with cache + spinner) —— #
+    with st.spinner("Computing duration matrix, may take a few seconds…"):
+        output = _compute_duration_matrix(df)
 
-    # —— 5) Draw weekday bar chart —— #
-    with st.spinner("Computing total duration by weekday…"):
-        df2 = _weekday_duration_summary(output)
-    df2 = df2.reset_index().round()
-    title2 = st.text_input("Bar Chart Title", "Total Duration by Weekday", key="title2")
+    # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
+    with st.spinner("Aggregating total duration by weekday…"):
+        df2 = _weekday_total_summary(output)
+
+    df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
+    title2 = st.text_input("Bar Chart Title", "Total Month Duration by Weekday", key="title2")
 
     fig2 = px.bar(
-        df2,
+        df2_plot,
         x='weekday',
-        y='TotalDuration',
-        labels={'weekday': 'Day of Week', 'TotalDuration': 'Total Duration (hrs)'},
-        text='TotalDuration',
+        y='Total',
+        labels={'weekday': 'Day of Week', 'Total': 'Total Duration (hours)'},
+        text='Total',
         template='plotly_white'
     )
     single_color = px.colors.qualitative.Plotly[0]
     fig2.update_traces(marker_color=single_color)
     fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
+    fig2.update_traces(texttemplate='%{text:.0f}')
 
-    # —— 6) Draw normalized heatmap —— #
-    start_date = df['Date'].min().strftime('%Y-%m-%d')
-    end_date   = df['Date'].max().strftime('%Y-%m-%d')
-    with st.spinner("Computing normalized heatmap data…"):
-        agg_df = _compute_normalized_duration_heatmap(output, start_date, end_date)
+    # —— 5. Normalized heatmap (with cache + spinner) —— #
+    # Use the actual data range for start_date/end_date
+    start_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).min().strftime('%Y-%m-%d')
+    end_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).max().strftime('%Y-%m-%d')
+    
+    with st.spinner("Calculating normalized heatmap data…"):
+        agg_df = _compute_normalized_heatmap(output, start_date, end_date)
 
+    df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
     title3 = st.text_input("Heatmap Title", "Normalized Duration Heatmap", key="title3")
 
     fig3, ax = plt.subplots(figsize=(20, 5))
-    sns.heatmap(agg_df, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
-    ax.set_title(title3, fontdict={'fontsize': 18, 'fontweight': 'bold'}, loc='center', pad=20)
+    sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+    ax.set_title(
+        title3,
+        fontdict={'fontsize': 18, 'fontweight': 'bold'},
+        loc='center',
+        pad=20
+    )
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
-    # —— 7) Render pie chart + download buttons —— #
-    st.subheader("Monthly Total Duration")
+    # —— 6. Display pie chart + download buttons —— #
+    st.subheader("Monthly Duration")
     st.plotly_chart(fig1, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3,1,3])
+    col_l, col_c, col_r = st.columns([3, 1, 3])
     with col_c:
-        with st.expander("💾 Save Pie Chart", expanded=False):
+        with st.expander("💾 Save ", expanded=False):
             buf1 = io.BytesIO()
             fig1.write_image(buf1, format="png", scale=2)
-            st.download_button("🏞️ PNG", data=buf1.getvalue(), file_name="monthly_duration.png", mime="image/png")
-            csv1 = monthly_summary.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 CSV", data=csv1, file_name="monthly_duration.csv", mime="text/csv")
+            st.download_button(
+                label="🏞️ PNG",
+                data=buf1.getvalue(),
+                file_name="monthly_distribution.png",
+                mime="image/png"
+            )
+            csv1 = monthly_summary.write_csv().encode("utf-8")
+            st.download_button(
+                label="📥 CSV",
+                data=csv1,
+                file_name="monthly_distribution.csv",
+                mime="text/csv"
+            )
 
-    # —— 8) Render bar chart + download buttons —— #
-    st.subheader("Total Duration by Weekday")
+    # —— 7. Display bar chart + download buttons —— #
+    st.subheader("Total Month Duration by Weekday")
     st.plotly_chart(fig2, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3,1,3])
+    col_l, col_c, col_r = st.columns([3, 1, 3])
     with col_c:
-        with st.expander("💾 Save Bar Chart", expanded=False):
+        with st.expander("💾 Save ", expanded=False):
             buf2 = io.BytesIO()
             fig2.write_image(buf2, format="png", scale=2)
-            st.download_button("🏞️ PNG", data=buf2.getvalue(), file_name="weekday_duration.png", mime="image/png")
-            csv2 = df2.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 CSV", data=csv2, file_name="weekday_duration.csv", mime="text/csv")
+            st.download_button(
+                label="🏞️ PNG",
+                data=buf2.getvalue(),
+                file_name="weekday_summary.png",
+                mime="image/png"
+            )
+            csv2 = df2.write_csv().encode("utf-8")
+            st.download_button(
+                label="📥 CSV",
+                data=csv2,
+                file_name="weekday_summary.csv",
+                mime="text/csv"
+            )
 
-    # —— 9) Render heatmap + download buttons —— #
+    # —— 8. Display heatmap + download buttons —— #
     st.subheader("Normalized Duration Heatmap")
     st.pyplot(fig3)
-    col_l, col_c, col_r = st.columns([3,1,3])
+    col_l, col_c, col_r = st.columns([3, 1, 3])
     with col_c:
-        with st.expander("💾 Save Heatmap", expanded=False):
+        with st.expander("💾 Save ", expanded=False):
             buf3 = io.BytesIO()
             fig3.savefig(buf3, format="png", dpi=150, bbox_inches="tight")
-            st.download_button("🏞️ PNG", data=buf3.getvalue(), file_name=f"{title3}.png", mime="image/png")
-            csv3 = agg_df.to_csv(index=True).encode("utf-8")
-            st.download_button("📥 CSV", data=csv3, file_name="normalized_duration.csv", mime="text/csv")
+            st.download_button(
+                label="🏞️ PNG",
+                data=buf3.getvalue(),
+                file_name=f"{title3}.png",
+                mime="image/png"
+            )
+            csv3 = df_plot.to_csv().encode("utf-8")
+            st.download_button(
+                label="📥 CSV",
+                data=csv3,
+                file_name="normalized_heatmap.csv",
+                mime="text/csv"
+            )
 
-    # —— 10) Navigation buttons —— #
-    back_col, _, week_col = st.columns([1,8,1])
+    # —— 9. 'Back' and 'Go to Week Analysis' buttons —— #
+    back_col, _, week_col = st.columns([1, 8, 1])
     with back_col:
         if st.button("⬅️ Back"):
-            # Clear all related session_state values
+            # Clear all related session_state keys
             keys_to_remove = [
                 "crna_data",
                 "analysis_type",
