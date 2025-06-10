@@ -214,7 +214,7 @@ def week_analysis():
         hm_data = hm_data_pl.to_pandas().set_index('weekday')
 
     # —— 6. Let user customize the chart title —— #
-    default_title = f"Presense for {selected_wk}"
+    default_title = f"Presence for {selected_wk}"
     key = f"title_{selected_wk}"
     title_input = st.text_input(
         label=f"{selected_wk} Chart Title",
