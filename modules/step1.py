@@ -65,22 +65,20 @@ def uploadstep1_page():
         })
 
         # Handle Count column
-        if cc and cc!="":
-            # First select the count column from original dataframe
-            count_series = df.select(cc).to_series()
+        df2 = df2.drop_nulls(subset=["Date", "In Room", "Out Room"])
+
+        if cc and cc != "":
+
+            count_series = df.filter(
+                ~pl.col(cd).is_null() & ~pl.col(ci).is_null() & ~pl.col(co).is_null()
+            ).select(cc).to_series()
             df2 = df2.with_columns([
                 count_series.alias('Count')
             ])
-            # check count column
-            non_empty_counts = df2.filter(pl.col('Count').is_not_null())
-            numeric_mask = pl.col('Count').cast(pl.Float64, strict=False).is_null()
-            error_indices = non_empty_counts.with_row_count("row_nr").filter(numeric_mask).get_column("row_nr").to_list()
-            count_error_count = len(error_indices)
         else:
             df2 = df2.with_columns([
                 pl.lit(1).alias('Count')
             ])
-            count_error_count = 0
 
         # normalize data
         original_dates = df2.get_column('Date').to_list()
