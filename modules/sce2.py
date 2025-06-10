@@ -267,10 +267,12 @@ def month_analysis():
     with st.spinner("Aggregating total demand by weekday…"):
         df2 = _weekday_total_summary(output)
 
+    df2 = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
+
     title2 = st.text_input("Bar Chart Title", "Total Month Demand by Weekday", key="title2")
 
     fig2 = px.bar(
-        df2.to_pandas(),
+        df2,
         x='weekday',
         y='Total',
         labels={'weekday': 'Day of Week', 'Total': 'Total Demand'},
@@ -280,6 +282,7 @@ def month_analysis():
     single_color = px.colors.qualitative.Plotly[0]
     fig2.update_traces(marker_color=single_color)
     fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
+    fig2.update_traces(texttemplate='%{text:.0f}')
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
     # Use the actual data range for start_date/end_date
@@ -293,7 +296,7 @@ def month_analysis():
 
     fig3, ax = plt.subplots(figsize=(20, 5))
     # 转成 pandas 后，把 weekday 设为 index，只保留数值部分
-    df_plot = agg_df.to_pandas().set_index('weekday')
+    df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
     sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(
         title3,
@@ -340,7 +343,7 @@ def month_analysis():
                 file_name="weekday_summary.png",
                 mime="image/png"
             )
-            csv2 = df2.write_csv().encode("utf-8")
+            csv2 = df2.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv2,
@@ -362,7 +365,7 @@ def month_analysis():
                 file_name=f"{title3}.png",
                 mime="image/png"
             )
-            csv3 = agg_df.write_csv().encode("utf-8")
+            csv3 = df_plot.to_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv3,

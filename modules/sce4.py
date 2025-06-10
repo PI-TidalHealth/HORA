@@ -286,13 +286,14 @@ def duration_month_analysis():
         output = _compute_duration_matrix(df)
 
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
-    with st.spinner("Aggregating total demand by weekday…"):
+    with st.spinner("Aggregating total duration by weekday…"):
         df2 = _weekday_total_summary(output)
 
+    df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
     title2 = st.text_input("Bar Chart Title", "Total Month Duration by Weekday", key="title2")
 
     fig2 = px.bar(
-        df2.to_pandas(),
+        df2_plot,
         x='weekday',
         y='Total',
         labels={'weekday': 'Day of Week', 'Total': 'Total Duration (hours)'},
@@ -302,6 +303,7 @@ def duration_month_analysis():
     single_color = px.colors.qualitative.Plotly[0]
     fig2.update_traces(marker_color=single_color)
     fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
+    fig2.update_traces(texttemplate='%{text:.0f}')
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
     # Use the actual data range for start_date/end_date
@@ -311,11 +313,10 @@ def duration_month_analysis():
     with st.spinner("Calculating normalized heatmap data…"):
         agg_df = _compute_normalized_heatmap(output, start_date, end_date)
 
+    df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
     title3 = st.text_input("Heatmap Title", "Normalized Duration Heatmap", key="title3")
 
     fig3, ax = plt.subplots(figsize=(20, 5))
-    # 转成 pandas 后，把 weekday 设为 index，只保留数值部分
-    df_plot = agg_df.to_pandas().set_index('weekday')
     sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(
         title3,
@@ -384,7 +385,7 @@ def duration_month_analysis():
                 file_name=f"{title3}.png",
                 mime="image/png"
             )
-            csv3 = agg_df.write_csv().encode("utf-8")
+            csv3 = df_plot.to_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv3,
