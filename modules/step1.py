@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
@@ -10,19 +10,30 @@ from modules.layout import set_narrow,set_fullwidth
 def uploadstep1_page():
     #upload file
     uploaded = st.session_state.get("uploaded_file", None)
+    if uploaded is None:
+        st.error("Please upload a file first.")
+        return
+
     try:
-        df = pd.read_csv(uploaded)
-    except Exception as e:
-        try:
-            df = pd.read_excel(uploaded)
-        except Exception as excel_e:
-            st.error("Please make sure it is either a valid CSV or Excel file.")
+        name = uploaded.name.lower()
+        if name.endswith('.csv'):
+            df = pl.read_csv(uploaded)
+        elif name.endswith(('.xls', '.xlsx')):
+            df = pl.read_excel(uploaded)
+        else:
+            st.error("❌ Unsupported file format. Please upload a CSV or Excel file.")
             return
+    except pl.NoDataError:
+        st.error("❌ The file appears to be empty.")
+        return
+    except Exception as e:
+        st.error(f"❌ Failed to read file: {str(e)}")
+        return
 
     #select columns
     st.title("Select Your Columns")
     with st.form("col_selector_form"):
-        raw_cols = df.columns.tolist()
+        raw_cols = df.columns
         placeholder = [""]  
         cols = placeholder + raw_cols
 
@@ -32,6 +43,7 @@ def uploadstep1_page():
         cc = st.selectbox("Select **Count** column [Optional]", cols, index=0)
 
         submit_cols = st.form_submit_button("✅ Process & Save ")
+    
     #check the data
     if submit_cols:
         # empty value
@@ -44,24 +56,38 @@ def uploadstep1_page():
         if len(selected_cols) != len(set(selected_cols)):
             st.error("❌ Duplicate columns selected! Please select different columns for each field.")
             return
-        
-        df2 = df[[cd, ci, co]].reset_index(drop=True)  
-        df2.columns = ['Date','In Room','Out Room']
+          
+        # Create new dataframe with selected columns
+        df2 = df.select([cd, ci, co]).rename({
+            cd: 'Date',
+            ci: 'In Room',
+            co: 'Out Room'
+        })
+
+        # Handle Count column
         if cc and cc!="":
-            df2['Count']=df[cc]
-            non_empty_counts=df2['count'].dropna()
-            numeric_mask = pd.to_numeric(non_empty_counts, errors='coerce').isna()
-            error_indices = non_empty_counts[numeric_mask].index.tolist()
+            # First select the count column from original dataframe
+            count_series = df.select(cc).to_series()
+            df2 = df2.with_columns([
+                count_series.alias('Count')
+            ])
+            # check count column
+            non_empty_counts = df2.filter(pl.col('Count').is_not_null())
+            numeric_mask = pl.col('Count').cast(pl.Float64, strict=False).is_null()
+            error_indices = non_empty_counts.with_row_count("row_nr").filter(numeric_mask).get_column("row_nr").to_list()
             count_error_count = len(error_indices)
         else:
-            df2['Count']=1
-            count_error_count=0
+            df2 = df2.with_columns([
+                pl.lit(1).alias('Count')
+            ])
+            count_error_count = 0
 
-    
         # normalize data
-        original_dates = df2['Date'].copy()
-        df2['Date'] = pd.to_datetime(df2['Date'].astype(str), errors='coerce')
-        invalid_dates = df2[df2['Date'].isna()].index.tolist()
+        original_dates = df2.get_column('Date').to_list()
+        df2 = df2.with_columns([
+            pl.col('Date').cast(pl.String).str.strptime(pl.Datetime, None).alias('Date')
+        ])
+        invalid_dates = df2.with_row_count("row_nr").filter(pl.col('Date').is_null()).get_column("row_nr").to_list()
         date_error_count = len(invalid_dates)
         
         if invalid_dates:
@@ -70,36 +96,61 @@ def uploadstep1_page():
             if len(invalid_dates) > 5:
                 error_msg += f"\n... and {len(invalid_dates) - 5} more errors"
             st.warning(f"⚠️ Found {date_error_count} invalid date(s):\n{error_msg}")
-            df2.loc[invalid_dates, 'Date'] = original_dates[invalid_dates]
+            # Restore original dates for invalid entries
+            df2 = df2.with_columns([
+                pl.when(pl.col('Date').is_null())
+                .then(pl.Series(name='Date', values=original_dates))
+                .otherwise(pl.col('Date'))
+                .alias('Date')
+            ])
         
-        #  HH:MM
+        # Format time strings to HH:MM
         def format_time(time_str):
-            if pd.isna(time_str) or time_str == '':
+            if not time_str or time_str == '':
                 return ''
             try:
-                dt = pd.to_datetime(str(time_str), format=None)
-                return dt.strftime('%H:%M')
+                # Remove any date part if present
+                if ' ' in str(time_str):
+                    time_str = str(time_str).split(' ')[-1]
+                
+                # Handle different time formats
+                time_str = str(time_str).strip()
+                if ':' in time_str:
+                    parts = time_str.split(':')
+                    if len(parts) >= 2:
+                        hours = int(parts[0].strip())
+                        minutes = int(parts[1].strip())
+                        if 0 <= hours < 24 and 0 <= minutes < 60:
+                            return f"{hours:02d}:{minutes:02d}"
+                return time_str
             except:
-                try:
-                    # add a virtual data
-                    dt = pd.to_datetime(f"2000-01-01 {str(time_str)}")
-                    return dt.strftime('%H:%M')
-                except:
-                    return str(time_str)  
-        # check the format for "In Room" and "Out Room"
-        original_in_times = df2['In Room'].copy()
-        original_out_times = df2['Out Room'].copy()
+                return str(time_str)
+
+        # Check time formats
+        original_in_times = df2.get_column('In Room').cast(pl.String).to_list()
+        original_out_times = df2.get_column('Out Room').cast(pl.String).to_list()
         
         in_time_errors = []
         out_time_errors = []
         
-        for idx, (in_time, out_time) in enumerate(zip(df2['In Room'], df2['Out Room'])):
+        for idx, (in_time, out_time) in enumerate(zip(original_in_times, original_out_times)):
             try:
-                pd.to_datetime(str(in_time))
+                # Remove any date part if present
+                in_time = str(in_time).split(' ')[-1] if ' ' in str(in_time) else str(in_time)
+                # Check time format
+                parts = in_time.strip().split(':')
+                if not (len(parts) >= 2 and 0 <= int(parts[0].strip()) < 24 and 0 <= int(parts[1].strip()) < 60):
+                    in_time_errors.append(idx)
             except:
                 in_time_errors.append(idx)
+            
             try:
-                pd.to_datetime(str(out_time))
+                # Remove any date part if present
+                out_time = str(out_time).split(' ')[-1] if ' ' in str(out_time) else str(out_time)
+                # Check time format
+                parts = out_time.strip().split(':')
+                if not (len(parts) >= 2 and 0 <= int(parts[0].strip()) < 24 and 0 <= int(parts[1].strip()) < 60):
+                    out_time_errors.append(idx)
             except:
                 out_time_errors.append(idx)
 
@@ -120,11 +171,17 @@ def uploadstep1_page():
                 error_msg += f"\n... and {len(out_time_errors) - 5} more errors"
             st.warning(f"⚠️ Found {out_time_error_count} invalid Out Room time(s):\n{error_msg}")
 
-        # process Count column
+        # Format times
+        df2 = df2.with_columns([
+            pl.col('In Room').cast(pl.String).map_elements(format_time).alias('In Room'),
+            pl.col('Out Room').cast(pl.String).map_elements(format_time).alias('Out Room')
+        ])
+
+        # Handle Count column
         if cc and cc!="":
-            original_counts = df2['Count'].copy()
-            df2['Count'] = pd.to_numeric(df2['Count'], errors='coerce')
-            invalid_counts = df2[df2['Count'].isna()].index.tolist()
+            original_counts = df2.get_column('Count').to_list()
+            df2 = df2.with_columns(pl.col('Count').cast(pl.Int64, strict=False).alias('Count'))
+            invalid_counts = df2.with_row_count("row_nr").filter(pl.col('Count').is_null()).get_column("row_nr").to_list()
             count_error_count = len(invalid_counts)
             
             if invalid_counts:
@@ -134,7 +191,19 @@ def uploadstep1_page():
                     error_msg += f"\n... and {len(invalid_counts) - 5} more errors"
                 st.warning(f"⚠️ Found {count_error_count} invalid count value(s). These will be set to 1:\n{error_msg}")
 
-        # sum the errors
+        # Fill null counts with 1
+        df2 = df2.with_columns(pl.col('Count').fill_null(1).cast(pl.Int64).alias('Count'))
+
+        # Format dates
+        if not df2.get_column('Date').is_null().all():
+            df2 = df2.with_columns([
+                pl.col('Date').cast(pl.Datetime).dt.strftime('%Y/%m/%d').alias('Date')
+            ])
+            df2 = df2.with_columns([
+                pl.col('Date').fill_null('').alias('Date')
+            ])
+
+        # Sum the errors
         total_errors = date_error_count + in_time_error_count + out_time_error_count + count_error_count
         
         if total_errors > 0: 
@@ -152,22 +221,9 @@ def uploadstep1_page():
                     st.session_state.page = "Upload"
                     st.rerun()
             return 
-        
-  
-        if not df2['Date'].isna().all():  
 
-            df2['Date'] = pd.to_datetime(df2['Date'], errors='coerce')
-
-            df2['Date'] = df2['Date'].fillna(pd.NaT).dt.strftime('%Y/%m/%d')
-            df2['Date'] = df2['Date'].fillna('') 
-        
-        df2['In Room'] = df2['In Room'].apply(format_time)
-        df2['Out Room'] = df2['Out Room'].apply(format_time)
-        df2['Count'] = df2['Count'].fillna(1).astype(int)
-
-
+        # Store polars DataFrame directly without converting to pandas
         st.session_state["crna_data"] = df2
-        
 
         if total_errors > 0:
             st.markdown("### 📊 Error Statistics Summary")
