@@ -79,6 +79,7 @@ def uploadstep1_page():
             df2 = df2.with_columns([
                 pl.lit(1).alias('Count')
             ])
+            count_error_count = 0
 
         # normalize data
         original_dates = df2.get_column('Date').to_list()
