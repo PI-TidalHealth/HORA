@@ -214,7 +214,7 @@ def week_analysis():
         hm_data = hm_data_pl.to_pandas().set_index('weekday')
 
     # —— 6. Let user customize the chart title —— #
-    default_title = f"Duration for {selected_wk}"
+    default_title = f"Presense for {selected_wk}"
     key = f"title_{selected_wk}"
     title_input = st.text_input(
         label=f"{selected_wk} Chart Title",
@@ -267,7 +267,7 @@ def week_analysis():
                     user_title = st.session_state.get(title_key, f"Demand for {wk}")
 
                     # Build a small figure for this week's heatmap:
-                    fig_w, ax_w = plt.subplots(figsize=(10, 3))
+                    fig_w, ax_w = plt.subplots(figsize=(20, 5))
                     sns.heatmap(df_hm, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
 
                     # Use the user's custom title
