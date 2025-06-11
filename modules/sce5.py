@@ -252,14 +252,14 @@ def duration_week_analysis():
             st.download_button(
                 label="🏞️ PNG",
                 data=buf.getvalue(),
-                file_name=f"{selected_wk}_duration_heatmap.png",
+                file_name=f"{title_input}.png",
                 mime="image/png"
             )
             csv_bytes = hm_data.to_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv_bytes,
-                file_name=f"{selected_wk}_duration_heatmap_data.csv",
+                file_name=f"{title_input}.csv",
                 mime="text/csv"
             )
 

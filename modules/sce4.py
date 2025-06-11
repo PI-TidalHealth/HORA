@@ -337,14 +337,14 @@ def duration_month_analysis():
             st.download_button(
                 label="🏞️ PNG",
                 data=buf1.getvalue(),
-                file_name="monthly_distribution.png",
+                file_name=f"{title1}.png",
                 mime="image/png"
             )
             csv1 = monthly_summary.write_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv1,
-                file_name="monthly_distribution.csv",
+                file_name=f"{title1}.csv",
                 mime="text/csv"
             )
     with col2:
@@ -355,14 +355,14 @@ def duration_month_analysis():
             st.download_button(
                 label="🏞️ PNG",
                 data=buf2.getvalue(),
-                file_name="weekday_summary.png",
+                file_name=f"{title2}.png",
                 mime="image/png"
             )
             csv2 = df2.write_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv2,
-                file_name="weekday_summary.csv",
+                file_name=f"{title2}.csv",
                 mime="text/csv"
             )
 
@@ -381,7 +381,7 @@ def duration_month_analysis():
         st.download_button(
             label="📥 CSV",
             data=csv3,
-            file_name="normalized_heatmap.csv",
+            file_name=f"{title3}.csv",
             mime="text/csv"
         )
 

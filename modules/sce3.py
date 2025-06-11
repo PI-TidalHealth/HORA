@@ -214,7 +214,7 @@ def week_analysis():
         hm_data = hm_data_pl.to_pandas().set_index('weekday')
 
     # —— 6. Let user customize the chart title —— #
-    default_title = f"Presence for {selected_wk}"
+    default_title = f"Duration for {selected_wk}"
     key = f"title_{selected_wk}"
     title_input = st.text_input(
         label=f"{selected_wk} Chart Title",
@@ -239,14 +239,14 @@ def week_analysis():
             st.download_button(
                 label="🏞️ PNG",
                 data=buf.getvalue(),
-                file_name=f"{selected_wk}_heatmap.png",
+                file_name=f"{title_input}.png",
                 mime="image/png"
             )
             csv_bytes = hm_data.to_csv().encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv_bytes,
-                file_name=f"{selected_wk}_heatmap_data.csv",
+                file_name=f"{title_input}.csv",
                 mime="text/csv"
             )
 
