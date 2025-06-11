@@ -281,7 +281,9 @@ def month_analysis():
     )
     single_color = px.colors.qualitative.Plotly[0]
     fig2.update_traces(marker_color=single_color)
-    fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
+    fig2.update_layout(
+        title={'text': title2, 'x': 0.5, 'xanchor': 'center'}
+    )
     fig2.update_traces(texttemplate='%{text:.0f}')
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
@@ -295,7 +297,6 @@ def month_analysis():
     title3 = st.text_input("Heatmap Title", "Normalized Demand Heatmap", key="title3")
 
     fig3, ax = plt.subplots(figsize=(20, 5))
-    # 转成 pandas 后，把 weekday 设为 index，只保留数值部分
     df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
     sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(
@@ -307,11 +308,10 @@ def month_analysis():
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
-    # —— 6. Display pie chart + download buttons —— #
-    st.subheader("Monthly Demand")
-    st.plotly_chart(fig1, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
+    # —— 6. Display pie chart + bar chart in one row —— #
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.plotly_chart(fig1, use_container_width=True)
         with st.expander("💾 Save ", expanded=False):
             buf1 = io.BytesIO()
             fig1.write_image(buf1, format="png", scale=2)
@@ -328,12 +328,8 @@ def month_analysis():
                 file_name="monthly_distribution.csv",
                 mime="text/csv"
             )
-
-    # —— 7. Display bar chart + download buttons —— #
-    st.subheader("Total Month Demand by Weekday")
-    st.plotly_chart(fig2, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
+    with col2:
+        st.plotly_chart(fig2, use_container_width=True)
         with st.expander("💾 Save ", expanded=False):
             buf2 = io.BytesIO()
             fig2.write_image(buf2, format="png", scale=2)
@@ -351,29 +347,26 @@ def month_analysis():
                 mime="text/csv"
             )
 
-    # —— 8. Display heatmap + download buttons —— #
-    st.subheader("Normalized Demand Heatmap")
+    # —— 7. Display heatmap in a new row —— #
     st.pyplot(fig3)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
-        with st.expander("💾 Save ", expanded=False):
-            buf3 = io.BytesIO()
-            fig3.savefig(buf3, format="png", dpi=150, bbox_inches="tight")
-            st.download_button(
-                label="🏞️ PNG",
-                data=buf3.getvalue(),
-                file_name=f"{title3}.png",
-                mime="image/png"
-            )
-            csv3 = df_plot.to_csv().encode("utf-8")
-            st.download_button(
-                label="📥 CSV",
-                data=csv3,
-                file_name="normalized_heatmap.csv",
-                mime="text/csv"
-            )
+    with st.expander("💾 Save ", expanded=False):
+        buf3 = io.BytesIO()
+        fig3.savefig(buf3, format="png", dpi=150, bbox_inches="tight")
+        st.download_button(
+            label="🏞️ PNG",
+            data=buf3.getvalue(),
+            file_name=f"{title3}.png",
+            mime="image/png"
+        )
+        csv3 = df_plot.to_csv().encode("utf-8")
+        st.download_button(
+            label="📥 CSV",
+            data=csv3,
+            file_name="normalized_heatmap.csv",
+            mime="text/csv"
+        )
 
-    # —— 9. 'Back' and 'Go to Week Analysis' buttons —— #
+    # —— 8. 'Back' and 'Go to Week Analysis' buttons —— #
     back_col, _, week_col = st.columns([1, 8, 1])
     with back_col:
         if st.button("⬅️ Back"):

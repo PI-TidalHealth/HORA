@@ -327,11 +327,10 @@ def duration_month_analysis():
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
-    # —— 6. Display pie chart + download buttons —— #
-    st.subheader("Monthly Duration")
-    st.plotly_chart(fig1, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
+    # —— 6. Display pie chart + bar chart in one row —— #
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.plotly_chart(fig1, use_container_width=True)
         with st.expander("💾 Save ", expanded=False):
             buf1 = io.BytesIO()
             fig1.write_image(buf1, format="png", scale=2)
@@ -348,12 +347,8 @@ def duration_month_analysis():
                 file_name="monthly_distribution.csv",
                 mime="text/csv"
             )
-
-    # —— 7. Display bar chart + download buttons —— #
-    st.subheader("Total Month Duration by Weekday")
-    st.plotly_chart(fig2, use_container_width=True)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
+    with col2:
+        st.plotly_chart(fig2, use_container_width=True)
         with st.expander("💾 Save ", expanded=False):
             buf2 = io.BytesIO()
             fig2.write_image(buf2, format="png", scale=2)
@@ -371,27 +366,24 @@ def duration_month_analysis():
                 mime="text/csv"
             )
 
-    # —— 8. Display heatmap + download buttons —— #
-    st.subheader("Normalized Duration Heatmap")
+    # —— 7. Display heatmap in a new row —— #
     st.pyplot(fig3)
-    col_l, col_c, col_r = st.columns([3, 1, 3])
-    with col_c:
-        with st.expander("💾 Save ", expanded=False):
-            buf3 = io.BytesIO()
-            fig3.savefig(buf3, format="png", dpi=150, bbox_inches="tight")
-            st.download_button(
-                label="🏞️ PNG",
-                data=buf3.getvalue(),
-                file_name=f"{title3}.png",
-                mime="image/png"
-            )
-            csv3 = df_plot.to_csv().encode("utf-8")
-            st.download_button(
-                label="📥 CSV",
-                data=csv3,
-                file_name="normalized_heatmap.csv",
-                mime="text/csv"
-            )
+    with st.expander("💾 Save ", expanded=False):
+        buf3 = io.BytesIO()
+        fig3.savefig(buf3, format="png", dpi=150, bbox_inches="tight")
+        st.download_button(
+            label="🏞️ PNG",
+            data=buf3.getvalue(),
+            file_name=f"{title3}.png",
+            mime="image/png"
+        )
+        csv3 = df_plot.to_csv().encode("utf-8")
+        st.download_button(
+            label="📥 CSV",
+            data=csv3,
+            file_name="normalized_heatmap.csv",
+            mime="text/csv"
+        )
 
     # —— 9. 'Back' and 'Go to Week Analysis' buttons —— #
     back_col, _, week_col = st.columns([1, 8, 1])
