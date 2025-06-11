@@ -58,7 +58,12 @@ def uploadstep1_page():
             return
           
         # Create new dataframe with selected columns
-        df2 = df.select([cd, ci, co])
+        df2 = df.select([cd, ci, co]).rename({
+            cd: 'Date',
+            ci: 'In Room',
+            co: 'Out Room'
+        })
+
         # Handle Count column
         df2 = df2.drop_nulls(subset=["Date", "In Room", "Out Room"])
 
