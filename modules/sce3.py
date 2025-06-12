@@ -18,49 +18,58 @@ _WEEKS_LIST     = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
 @st.cache_data(show_spinner=False)
 def _compute_presence_matrix(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Vectorize the original df (which must include 'In Room', 'Out Room', 'Count')
-    into a DataFrame containing 24 columns (0–23 hours).
+    Vectorize the original df (which must include 'Date', 'In Room', 'Out Room', 'Count')
+    into a DataFrame containing 24 columns (0–23 hours), using real date and supporting midnight rollover.
     """
-    # Convert to pandas temporarily for easier time processing
-    temp_pd = df.to_pandas()
-    
-    # Drop rows with null values
-    temp_pd = temp_pd.dropna(subset=['In Room', 'Out Room']).copy()
-    
-    if len(temp_pd) == 0:
-        # Return empty result with all required columns
-        empty_cols = {str(h): 0 for h in range(24)}
-        return pl.from_pandas(temp_pd.assign(**empty_cols))
-    
-    # Parse times using pandas (more forgiving)
-    try:
-        temp_pd['In_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['In Room'].astype(str))
-        temp_pd['Out_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['Out Room'].astype(str))
-    except:
-        # Fallback: try parsing as datetime directly
-        temp_pd['In_time'] = pd.to_datetime(temp_pd['In Room'])
-        temp_pd['Out_time'] = pd.to_datetime(temp_pd['Out Room'])
-    
-    # Handle cross-day cases
-    mask = temp_pd['Out_time'] < temp_pd['In_time']
-    temp_pd.loc[mask, 'Out_time'] += pd.Timedelta(days=1)
-    
-    # Ensure Count is integer
-    temp_pd['Count'] = temp_pd['Count'].astype(int)
-    
-    # Create 24 hour columns
+    # 1. 转为 pandas DataFrame
+    df = df.to_pandas()
+
+    # 2. 解析时间
+    df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
+    df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
+    # 跨天处理
+    df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
+
+    # 3. 生成每小时的时间点列表
+    def hour_range(row):
+        start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
+        end = row['Out_dt']
+        hours = []
+        cur = start
+        while cur < end:
+            hours.append(cur)
+            cur += timedelta(hours=1)
+        return hours
+
+    df['hour_ts'] = df.apply(hour_range, axis=1)
+    df_exploded = df.explode('hour_ts')
+
+    # 4. 提取日期、小时
+    df_exploded['Date'] = df_exploded['hour_ts'].dt.date
+    df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
+
+    # 5. 按日期和小时统计 presence
+    result = (
+        df_exploded
+        .groupby(['Date', 'hour'], as_index=False)['Count']
+        .sum()
+        .pivot(index='Date', columns='hour', values='Count')
+        .fillna(0)
+        .astype(int)
+    )
+
+    # 6. 补齐所有小时列
     for h in range(24):
-        hour_start = pd.to_datetime(f'1900-01-01 {h:02d}:00:00')
-        hour_end = pd.to_datetime(f'1900-01-01 {(h+1)%24:02d}:00:00')
-        if h == 23:  # Handle 23:00-00:00 (next day)
-            hour_end = pd.to_datetime('1900-01-02 00:00:00')
-        
-        # Check overlap: in_time < hour_end AND out_time > hour_start
-        overlap = (temp_pd['In_time'] < hour_end) & (temp_pd['Out_time'] > hour_start)
-        temp_pd[str(h)] = (overlap * temp_pd['Count']).astype(int)
-    
-    # Convert back to polars
-    return pl.from_pandas(temp_pd)
+        if h not in result.columns:
+            result[h] = 0
+    result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
+    result = result.sort_index(axis=1)
+
+    # 7. 加 weekday 列
+    result['weekday'] = pd.to_datetime(result.index).strftime('%A')
+
+    # 8. 转回 polars DataFrame
+    return pl.from_pandas(result.reset_index())
 
 
 @st.cache_data(show_spinner=False)
@@ -95,7 +104,6 @@ def _assign_month_week(df: pl.DataFrame) -> pl.DataFrame:
           .otherwise(pl.lit("Week 5"))
           .alias("week_of_month")
     ])
-    
     return temp
 
 
@@ -214,7 +222,7 @@ def week_analysis():
         hm_data = hm_data_pl.to_pandas().set_index('weekday')
 
     # —— 6. Let user customize the chart title —— #
-    default_title = f"Duration for {selected_wk}"
+    default_title = f"Presense for {selected_wk}"
     key = f"title_{selected_wk}"
     title_input = st.text_input(
         label=f"{selected_wk} Chart Title",
