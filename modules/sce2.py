@@ -1,11 +1,12 @@
 import polars as pl
-import pandas as _pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import streamlit as st
 import plotly.express as px
 import io
+import matplotlib
+import pandas as pd
 
 # Constants
 _REFERENCE_DATE = "1900-01-01 "
@@ -26,14 +27,14 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
     
 
     temp = temp.with_columns([
-        (pl.lit(_REFERENCE_DATE) + pl.col('In Room')).alias('In_str'),
-        (pl.lit(_REFERENCE_DATE) + pl.col('Out Room')).alias('Out_str')
+        (pl.col('Date').cast(str) + ' ' + pl.col('In Room')).alias('In_str'),
+        (pl.col('Date').cast(str) + ' ' + pl.col('Out Room')).alias('Out_str')
     ])
     
     # Then convert to datetime by adding reference date
     temp = temp.with_columns([
-        pl.col('In_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('In_dt'),
-        pl.col('Out_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('Out_dt')
+        pl.col('In_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('In_dt'),
+        pl.col('Out_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('Out_dt')
     ])
     
     # Handle cross-day cases
@@ -43,46 +44,58 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
             .otherwise(pl.col('Out_dt'))
             .alias('Out_dt')
     ])
-    
+    print(temp)
     return temp
 
 @st.cache_data(show_spinner=False)
-def _compute_presence_matrix(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Vectorize the original df (which must contain three columns: 'In Room', 'Out Room', 'Count')
-    into a DataFrame containing 24 columns (0–23 hours). 
-    Return value: original df (without NaN) + 24 columns indicating the number of people in the room.
-    """
-    # Parse time series data
-    temp = _parse_time_series(df)
-    
-    # Get datetime lists
-    in_times = temp.get_column('In_dt').to_list()
-    out_times = temp.get_column('Out_dt').to_list()
+def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    # 1. 解析时间
+    df = df.to_pandas()
+    df = df.copy()
+    df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
+    df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
+    # 跨天处理
+    df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
-    # Create presence matrix
-    presence_matrix = []
+    # 2. 生成每小时的时间点列表
+    def hour_range(row):
+        start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
+        end = row['Out_dt']
+        hours = []
+        cur = start
+        while cur < end:
+            hours.append(cur)
+            cur += timedelta(hours=1)
+        return hours
+
+    df['hour_ts'] = df.apply(hour_range, axis=1)
+    df_exploded = df.explode('hour_ts')
+
+    # 3. 提取日期、小时
+    df_exploded['Date'] = df_exploded['hour_ts'].dt.date
+    df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
+
+    # 4. 按日期和小时统计 presence
+    result = (
+        df_exploded
+        .groupby(['Date', 'hour'], as_index=False)['Count']
+        .sum()
+        .pivot(index='Date', columns='hour', values='Count')
+        .fillna(0)
+        .astype(int)
+    )
+
+    # 5. 补齐所有小时列
     for h in range(24):
-        start_time = datetime.strptime(_TIME_BIN_START[h], _DATETIME_FORMAT)
-        end_time = datetime.strptime(_TIME_BIN_END[h], _DATETIME_FORMAT)
-        
-        overlap = [
-            1 if (in_t < end_time and out_t > start_time) else 0
-            for in_t, out_t in zip(in_times, out_times)
-        ]
-        
-        # Multiply by Count
-        counts = temp.get_column('Count').cast(pl.Int64).to_list()
-        presence = [o * c for o, c in zip(overlap, counts)]
-        presence_matrix.append(presence)
+        if h not in result.columns:
+            result[h] = 0
+    result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
+    result = result.sort_index(axis=1)
 
-    # Convert to DataFrame
-    presence_df = pl.DataFrame({
-        str(h): pl.Series(presence_matrix[h]) for h in range(24)
-    })
+    # 6. 加 weekday 列
+    result['weekday'] = pd.to_datetime(result.index).strftime('%A')
 
-    # Combine original data with presence matrix
-    return pl.concat([temp, presence_df], how='horizontal')
+    return pl.from_pandas(result.reset_index())
 
 @st.cache_data(show_spinner=False)
 def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
@@ -205,7 +218,7 @@ def month_analysis():
     df = st.session_state['crna_data']
     
     # Convert pandas DataFrame to polars if needed
-    if isinstance(df, _pd.DataFrame):
+    if isinstance(df, pd.DataFrame):
         df = pl.from_pandas(df)
     df = df.clone()
     
@@ -296,16 +309,45 @@ def month_analysis():
 
     title3 = st.text_input("Heatmap Title", "Normalized Demand Heatmap", key="title3")
 
+    # 检测streamlit主题
+    theme = st.get_option("theme.base")
+    is_dark = theme == "dark"
+
     fig3, ax = plt.subplots(figsize=(20, 5))
     df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
-    sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
-    ax.set_title(
-        title3,
-        fontdict={'fontsize': 18, 'fontweight': 'bold'},
-        loc='center',
-        pad=20
-    )
-    ax.set_ylabel("DOW", fontsize=14)
+    if is_dark:
+        fig3.patch.set_facecolor("#0f1117")
+        ax.set_facecolor("#0f1117")
+        cbar_kws = {"format": "%d", "shrink": 0.98}
+        hm = sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax, cbar_kws=cbar_kws)
+        # 设置所有文本为白色
+        ax.set_title(
+            title3,
+            fontdict={'fontsize': 18, 'fontweight': 'bold', 'color': 'white'},
+            loc='center',
+            pad=20
+        )
+        ax.set_ylabel("DOW", fontsize=14, color="white")
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        # 设置annot文本为白色
+        for t in hm.texts:
+            t.set_color("white")
+        # 设置colorbar刻度和label为白色
+        cbar = hm.collections[0].colorbar
+        cbar.ax.yaxis.set_tick_params(color='white')
+        plt.setp(cbar.ax.yaxis.get_ticklabels(), color='white')
+        cbar.set_label(cbar.ax.get_ylabel(), color='white')
+        cbar.ax.yaxis.label.set_color('white')
+    else:
+        hm = sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+        ax.set_title(
+            title3,
+            fontdict={'fontsize': 18, 'fontweight': 'bold'},
+            loc='center',
+            pad=20
+        )
+        ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
 
     # —— 6. Display pie chart + bar chart in one row —— #
