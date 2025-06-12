@@ -28,14 +28,14 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
     
 
     temp = temp.with_columns([
-        (pl.lit(_REFERENCE_DATE) + pl.col('In Room')).alias('In_str'),
-        (pl.lit(_REFERENCE_DATE) + pl.col('Out Room')).alias('Out_str')
+        (pl.col('Date').cast(str) + ' ' + pl.col('In Room')).alias('In_str'),
+        (pl.col('Date').cast(str) + ' ' + pl.col('Out Room')).alias('Out_str')
     ])
     
     # Then convert to datetime by adding reference date
     temp = temp.with_columns([
-        pl.col('In_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('In_dt'),
-        pl.col('Out_str').str.strptime(pl.Datetime, format=_DATETIME_FORMAT).alias('Out_dt')
+        pl.col('In_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('In_dt'),
+        pl.col('Out_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('Out_dt')
     ])
     
     # Handle cross-day cases
@@ -45,66 +45,69 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
             .otherwise(pl.col('Out_dt'))
             .alias('Out_dt')
     ])
-    
+    print(temp)
     return temp
 
 @st.cache_data(show_spinner=False)
-def _compute_duration_matrix(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Vectorize each row's In/Out into a 24-column matrix of durations (hours).
-    Returns original rows + 24 columns (0–23) of duration values.
-    """
-    # Convert to pandas temporarily for easier time processing
-    temp_pd = df.to_pandas()
-    
-    # Drop rows with null values
-    temp_pd = temp_pd.dropna(subset=['In Room', 'Out Room']).copy()
-    
-    if len(temp_pd) == 0:
-        # Return empty result with all required columns
-        empty_cols = {str(h): 0.0 for h in range(24)}
-        return pl.from_pandas(temp_pd.assign(**empty_cols))
-    
-    # Parse times using pandas (more forgiving)
-    try:
-        temp_pd['In_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['In Room'].astype(str))
-        temp_pd['Out_time'] = pd.to_datetime('1900-01-01 ' + temp_pd['Out Room'].astype(str))
-    except:
-        # Fallback: try parsing as datetime directly
-        temp_pd['In_time'] = pd.to_datetime(temp_pd['In Room'])
-        temp_pd['Out_time'] = pd.to_datetime(temp_pd['Out Room'])
-    
-    # Handle cross-day cases
-    mask = temp_pd['Out_time'] < temp_pd['In_time']
-    temp_pd.loc[mask, 'Out_time'] += pd.Timedelta(days=1)
-    
-    # Ensure Count is integer
-    temp_pd['Count'] = temp_pd['Count'].astype(int)
-    
-    # Create 24 hour columns with duration values
+def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
+    # 1. 转为 pandas DataFrame
+    df = df.to_pandas()
+
+    # 2. 解析时间
+    df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
+    df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
+    # 跨天处理
+    df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
+
+    # 3. 生成每小时的时间点列表
+    def hour_range(row):
+        start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
+        end = row['Out_dt']
+        hours = []
+        cur = start
+        while cur < end:
+            hours.append(cur)
+            cur += timedelta(hours=1)
+        return hours
+
+    df['hour_ts'] = df.apply(hour_range, axis=1)
+    df_exploded = df.explode('hour_ts')
+
+    # 4. 提取日期、小时
+    df_exploded['Date'] = df_exploded['hour_ts'].dt.date
+    df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
+
+    # 5. 计算每小时的 duration（小时数）
+    def calc_duration(row):
+        hour_start = row['hour_ts']
+        hour_end = hour_start + timedelta(hours=1)
+        overlap_start = max(row['In_dt'], hour_start)
+        overlap_end = min(row['Out_dt'], hour_end)
+        duration = (overlap_end - overlap_start).total_seconds() / 3600.0
+        return max(duration, 0) * row['Count']
+
+    df_exploded['duration'] = df_exploded.apply(calc_duration, axis=1)
+
+    # 6. 按日期和小时统计 duration
+    result = (
+        df_exploded
+        .groupby(['Date', 'hour'], as_index=False)['duration']
+        .sum()
+        .pivot(index='Date', columns='hour', values='duration')
+        .fillna(0)
+    )
+
+    # 7. 补齐所有小时列
     for h in range(24):
-        hour_start = pd.to_datetime(f'1900-01-01 {h:02d}:00:00')
-        hour_end = pd.to_datetime(f'1900-01-01 {(h+1)%24:02d}:00:00')
-        if h == 23:  # Handle 23:00-00:00 (next day)
-            hour_end = pd.to_datetime('1900-01-02 00:00:00')
-        
-        # Calculate overlap duration in hours
-        overlap_start = np.maximum(
-            temp_pd['In_time'].values.astype('datetime64[ns]'),
-            hour_start.to_datetime64()
-        )
-        overlap_end = np.minimum(
-            temp_pd['Out_time'].values.astype('datetime64[ns]'),
-            hour_end.to_datetime64()
-        )
-        duration = (overlap_end - overlap_start).astype('timedelta64[s]').astype(float) / 3600.0
-        duration = np.where(duration < 0, 0, duration)
-        
-        # Multiply by Count
-        temp_pd[str(h)] = (duration * temp_pd['Count']).astype(float)
-    
-    # Convert back to polars
-    return pl.from_pandas(temp_pd)
+        if h not in result.columns:
+            result[h] = 0.0
+    result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
+    result = result.sort_index(axis=1)
+
+    # 8. 加 weekday 列
+    result['weekday'] = pd.to_datetime(result.index).strftime('%A')
+
+    return pl.from_pandas(result.reset_index())
 
 @st.cache_data(show_spinner=False)
 def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
@@ -233,9 +236,15 @@ def duration_month_analysis():
     
     # Standardize Date column
     df = df.with_columns([
-        pl.col('Date')
-            .cast(pl.String)
-            .str.strptime(pl.Date, format='%Y/%m/%d')
+        # First standardize the format by replacing all separators with '/'
+        pl.col('Date').str.replace_all(r'[-.]', '/').alias('Date')
+    ]).with_columns([
+        # Then try both date formats with strict=False
+        pl.when(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=False).is_not_null())
+            .then(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=False))
+            .otherwise(
+                pl.col('Date').str.strptime(pl.Date, format='%m/%d/%Y', strict=False)
+            )
             .alias('Date')
     ])
     
