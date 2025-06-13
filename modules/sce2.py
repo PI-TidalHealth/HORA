@@ -25,7 +25,6 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
         ~pl.col('Out Room').is_null()
     )
     
-
     temp = temp.with_columns([
         (pl.col('Date').cast(str) + ' ' + pl.col('In Room')).alias('In_str'),
         (pl.col('Date').cast(str) + ' ' + pl.col('Out Room')).alias('Out_str')
@@ -44,7 +43,6 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
             .otherwise(pl.col('Out_dt'))
             .alias('Out_dt')
     ])
-    print(temp)
     return temp
 
 @st.cache_data(show_spinner=False)
@@ -94,6 +92,7 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
     # 6. 加 weekday 列
     result['weekday'] = pd.to_datetime(result.index).strftime('%A')
+    print(result)
 
     return pl.from_pandas(result.reset_index())
 
@@ -115,28 +114,47 @@ def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
     return monthly_summary
 
 @st.cache_data(show_spinner=False)
-def _weekday_total_summary(df_with_time: pl.DataFrame) -> pl.DataFrame:
+def _weekday_total_summary(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
     """
-    Group by 'weekday' on a DataFrame that already contains 24 columns (0–23) 
-    and a 'weekday' column, returning a 7×1 DataFrame named 'Total'.
+    Group by 'weekday' on a DataFrame that已经包含24小时列（0~23）和'weekday'列，
+    返回一个7×2的DataFrame，每行是weekday，Total为该weekday所有小时的总和，
+    再除以24和该weekday在[start_date, end_date]区间内的天数。
     """
-    # Get all hour columns
     hour_cols = [str(h) for h in range(24)]
-    # 先生成 Total 列
-    df_with_time = df_with_time.with_columns(
-        pl.sum_horizontal(hour_cols).alias('Total')
-    )
-    # 再 group_by
-    summed = (
+    # 按 weekday 分组，对每小时列求和
+    result = (
         df_with_time
         .group_by('weekday')
         .agg([
-            pl.col('Total').sum().alias('Total')
+            pl.col(col).sum().alias(col) for col in hour_cols
         ])
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    return summed
+    # 统计每个 weekday 在区间内的天数
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    date_list = []
+    cur = start_dt
+    while cur <= end_dt:
+        date_list.append(cur)
+        cur += timedelta(days=1)
+    day_counts = (
+        pl.DataFrame({'date': date_list})
+        .with_columns([
+            pl.col('date').dt.strftime('%A').alias('weekday')
+        ])
+        .group_by('weekday')
+        .count()
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+        .sort('weekday')
+    )
+    # 新增 Total 列
+    result = result.with_columns(
+        (pl.sum_horizontal(hour_cols) / 24 / day_counts.get_column('count')).alias('Total')
+    )
+    return result.select(['weekday', 'Total'])
+
 
 @st.cache_data(show_spinner=False)
 def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
@@ -158,7 +176,7 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    
+    print(raw)
     # Convert start/end to python datetime for robustness
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
     end_dt   = datetime.strptime(end_date, '%Y-%m-%d')
@@ -169,21 +187,34 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         date_list.append(cur)
         cur += timedelta(days=1)
 
+    # 统计 presence matrix 里所有实际出现过的日期
+    all_dates = df_with_time.get_column('Date').unique().to_list()
+    date_df = pl.DataFrame({'date': all_dates})
+    date_df = date_df.with_columns([
+        pl.col('date').dt.strftime('%A').alias('weekday')
+    ])
     day_counts = (
-        pl.DataFrame({'date': date_list})
-        .with_columns([
-            pl.col('date').dt.strftime('%A').alias('weekday')
-        ])
+        date_df
         .group_by('weekday')
         .count()
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
+    print(day_counts)
+    # 生成完整的 weekday DataFrame
+    all_weekdays = pl.DataFrame({'weekday': _WEEKDAY_ORDER})
 
+    # 补齐 raw 和 day_counts
+    raw = all_weekdays.join(raw, on='weekday', how='left').fill_null(0)
+    day_counts = all_weekdays.join(day_counts, on='weekday', how='left').fill_null(0)
     
     # Normalize the counts
     normalized = raw.with_columns([
-        (pl.col(col) / day_counts.get_column('count')).round().cast(pl.Int64).alias(col)
+        (pl.col(col) / day_counts.get_column('count'))
+            .fill_nan(0)
+            .round()
+            .cast(pl.Int64)
+            .alias(col)
         for col in hour_cols
     ])
     
@@ -275,14 +306,15 @@ def month_analysis():
     # —— 3. Compute Presence matrix (with cache + spinner) —— #
     with st.spinner("Computing presence matrix, may take a few seconds…"):
         output = _compute_presence_matrix(df)
-
+    start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+    end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
     with st.spinner("Aggregating total demand by weekday…"):
-        df2 = _weekday_total_summary(output)
+        df2 = _weekday_total_summary(output, start_date, end_date)
 
     df2 = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
 
-    title2 = st.text_input("Bar Chart Title", "Total Month Demand by Weekday", key="title2")
+    title2 = st.text_input("Bar Chart Title", "Average Hour Demand by Weekday ", key="title2")
 
     fig2 = px.bar(
         df2,
@@ -301,17 +333,18 @@ def month_analysis():
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
     # Use the actual data range for start_date/end_date
-    start_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).min().strftime('%Y-%m-%d')
-    end_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).max().strftime('%Y-%m-%d')
+
     
     with st.spinner("Calculating normalized heatmap data…"):
         agg_df = _compute_normalized_heatmap(output, start_date, end_date)
 
     title3 = st.text_input("Heatmap Title", "Normalized Demand Heatmap", key="title3")
 
-    # 检测streamlit主题
-    theme = st.get_option("theme.base")
-    is_dark = theme == "dark"
+    #theme_mode = st.sidebar.radio("Theme", ["Light", "Dark"])
+    #is_dark = (theme_mode == "Dark")
+    
+    bg_color = st.get_option("theme.backgroundColor")
+    is_dark = (bg_color is not None and bg_color.lower() == "#0f1117")
 
     fig3, ax = plt.subplots(figsize=(20, 5))
     df_plot = agg_df.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER)
@@ -437,3 +470,4 @@ def month_analysis():
             else:
                 st.session_state.page = "sce5"
             st.rerun()
+
