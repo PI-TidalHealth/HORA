@@ -93,7 +93,7 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
-    """Summarize 'Count' by 'Month' (Period) and generate 'MonthLabel'."""
+    """Summarize number of records by 'Month' (Period) and generate 'MonthLabel'."""
     monthly_summary = (
         df.with_columns([
             pl.col('Date').dt.strftime('%Y-%m').alias('Month'),
@@ -101,7 +101,7 @@ def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
         ])
         .group_by(['Month', 'MonthLabel'])
         .agg([
-            pl.col('Count').sum().alias('Count')
+            pl.count().alias('Count')
         ])
         .sort('Month')
     )

@@ -20,8 +20,6 @@ from modules.function import _compute_duration_matrix
 _WEEKDAY_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 
-
-
 def duration_month_analysis():
     """Main function for monthly analysis visualization."""
     # Apply custom CSS
