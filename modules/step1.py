@@ -1,11 +1,7 @@
 import polars as pl
-import seaborn as sns
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import streamlit as st
-import plotly.express as px
-from pathlib import Path
-from modules.layout import set_narrow,set_fullwidth
+from modules.layout import set_narrow
 
 def uploadstep1_page():
     #upload file
@@ -64,7 +60,7 @@ def uploadstep1_page():
             co: 'Out Room'
         })
 
-        # Handle Count column
+ 
         df2 = df2.drop_nulls(subset=["Date", "In Room", "Out Room"])
 
         if cc and cc != "":
@@ -83,9 +79,38 @@ def uploadstep1_page():
 
         # normalize data
         original_dates = df2.get_column('Date').to_list()
-        df2 = df2.with_columns([
-            pl.col('Date').cast(pl.String).str.strptime(pl.Datetime, None).alias('Date')
-        ])
+        
+        try:
+            # First standardize the format by replacing all separators with '/'
+            df2 = df2.with_columns([
+                pl.col('Date').str.replace_all(r'[-.]', '/').alias('Date')
+            ])
+            
+            # Add debug information
+            st.write("Debug: Original dates after standardization:")
+            st.write(df2.select('Date').head().to_pandas())
+            
+            # Try parsing with both formats, but more strictly
+            df2 = df2.with_columns([
+                pl.when(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=True).is_not_null())
+                    .then(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=True))
+                    .otherwise(
+                        pl.col('Date').str.strptime(pl.Date, format='%m/%d/%Y', strict=True)
+                    )
+                    .alias('Date')
+            ])
+            
+            # Add more debug information
+            st.write("Debug: Parsed dates:")
+            st.write(df2.select('Date').head().to_pandas())
+            
+        except Exception as e:
+            st.error(f"Date parsing error: {str(e)}")
+            # Fallback: try without format conversion
+            df2 = df2.with_columns([
+                pl.col("Date").cast(pl.Date).alias("Date")
+            ])
+        
         invalid_dates = df2.with_row_count("row_nr").filter(pl.col('Date').is_null()).get_column("row_nr").to_list()
         date_error_count = len(invalid_dates)
         
@@ -238,25 +263,23 @@ def uploadstep1_page():
         st.success("✅ Columns selected and standardized.")
         st.write("🔍 Data Preview (cleaned):", df2.head())
 
-    if st.session_state.get("col_error"):
-        st.warning("⚠ Please select all four columns to proceed.")
-        if st.button("OK", key="col_error_ok"):
-            st.session_state.pop("col_error")
-        return
+    error_msgs = [
+        ("col_error", "⚠ Please select first three columns to proceed.", "warning"),
+        ("duplicate_error", "❌ Duplicate columns selected! Please select different columns for each field.", "error"),
+        ("format_error", "❌ Invalid data format!\nPlease ensure the Count column contains only numbers (empty values are allowed)", "error"),
+    ]
 
-    if st.session_state.get("duplicate_error"):
-        st.error("❌ Duplicate columns selected! Please select different columns for each field.")
-        if st.button("OK", key="duplicate_error_ok"):
-            st.session_state.pop("duplicate_error")
-        return
-
-    if st.session_state.get("format_error"):
-        st.error("❌ Invalid data format!")
-        st.warning("Please ensure the Count column contains only numbers (empty values are allowed)")
-        if st.button("OK", key="format_error_ok"):
-            st.session_state.pop("format_error")
-            st.session_state.pop("format_error_msg", None)
-        return
+    for err_key, msg, level in error_msgs:
+        if st.session_state.get(err_key):
+            if level == "warning":
+                st.warning(msg)
+            else:
+                st.error(msg)
+            if st.button("OK", key=f"{err_key}_ok"):
+                st.session_state.pop(err_key)
+                if err_key == "format_error":
+                    st.session_state.pop("format_error_msg", None)
+            st.stop()  # 或 return
 
     if "crna_data" not in st.session_state:
         return

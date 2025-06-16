@@ -1,21 +1,6 @@
-try:
-    import polars as pl
-except ImportError as e:
-    import streamlit as st
-    st.error(f"Failed to import polars. Error: {str(e)}")
-    st.info("Try restarting the Streamlit server after installing polars.")
-    import sys
-    st.write("Python path:", sys.path)
-    st.write("Python version:", sys.version)
-    raise
-
-import seaborn as sns
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
 import streamlit as st
-import plotly.express as px 
 from pathlib import Path
-from modules.layout import set_narrow,set_fullwidth
+from modules.layout import set_narrow
 
 def render_upload_page():
 
