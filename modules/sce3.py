@@ -16,21 +16,46 @@ _WEEKS_LIST     = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
 
 
 @st.cache_data(show_spinner=False)
-def _compute_presence_matrix(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Vectorize the original df (which must include 'Date', 'In Room', 'Out Room', 'Count')
-    into a DataFrame containing 24 columns (0–23 hours), using real date and supporting midnight rollover.
-    """
-    # 1. 转为 pandas DataFrame
-    df = df.to_pandas()
+def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
+    """Parse time series data and handle edge cases."""
+    # Drop rows with null values in In Room or Out Room
+    temp = df.filter(
+        ~pl.col('In Room').is_null() & 
+        ~pl.col('Out Room').is_null()
+    )
+    
 
-    # 2. 解析时间
+    temp = temp.with_columns([
+        (pl.col('Date').cast(str) + ' ' + pl.col('In Room')).alias('In_str'),
+        (pl.col('Date').cast(str) + ' ' + pl.col('Out Room')).alias('Out_str')
+    ])
+    
+    # Then convert to datetime by adding reference date
+    temp = temp.with_columns([
+        pl.col('In_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('In_dt'),
+        pl.col('Out_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('Out_dt')
+    ])
+    
+    # Handle cross-day cases
+    temp = temp.with_columns([
+        pl.when(pl.col('Out_dt') < pl.col('In_dt'))
+            .then(pl.col('Out_dt') + timedelta(days=1))
+            .otherwise(pl.col('Out_dt'))
+            .alias('Out_dt')
+    ])
+    return temp
+
+@st.cache_data(show_spinner=False)
+def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    # 1. 解析时间
+    df = df.to_pandas()
+    df = df.copy()
     df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
     df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
     # 跨天处理
     df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
-    # 3. 生成每小时的时间点列表
+    # 2. 生成每小时的时间点列表
     def hour_range(row):
         start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
         end = row['Out_dt']
@@ -44,11 +69,11 @@ def _compute_presence_matrix(df: pl.DataFrame) -> pl.DataFrame:
     df['hour_ts'] = df.apply(hour_range, axis=1)
     df_exploded = df.explode('hour_ts')
 
-    # 4. 提取日期、小时
+    # 3. 提取日期、小时
     df_exploded['Date'] = df_exploded['hour_ts'].dt.date
     df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
 
-    # 5. 按日期和小时统计 presence
+    # 4. 按日期和小时统计 presence
     result = (
         df_exploded
         .groupby(['Date', 'hour'], as_index=False)['Count']
@@ -58,53 +83,18 @@ def _compute_presence_matrix(df: pl.DataFrame) -> pl.DataFrame:
         .astype(int)
     )
 
-    # 6. 补齐所有小时列
+    # 5. 补齐所有小时列
     for h in range(24):
         if h not in result.columns:
             result[h] = 0
     result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
     result = result.sort_index(axis=1)
 
-    # 7. 加 weekday 列
+    # 6. 加 weekday 列
     result['weekday'] = pd.to_datetime(result.index).strftime('%A')
+    print(result)
 
-    # 8. 转回 polars DataFrame
     return pl.from_pandas(result.reset_index())
-
-
-@st.cache_data(show_spinner=False)
-def _assign_month_week(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Add a 'week_of_month' column (Week 1 through Week 5) to a DataFrame that already has a 'Date' column.
-    """
-    # Ensure Date is in the correct format
-    temp = df
-    if temp.schema["Date"] != pl.Date:
-        try:
-            temp = temp.with_columns([
-                pl.col("Date").str.strptime(pl.Date, format="%Y-%m-%d").alias("Date")
-            ])
-        except:
-            temp = temp.with_columns([
-                pl.col("Date").cast(pl.Date).alias("Date")
-            ])
-    
-    # Add day and week_of_month columns
-    temp = temp.with_columns([
-        pl.col("Date").dt.day().alias("day")
-    ]).with_columns([
-        pl.when(pl.col("day") <= 7)
-          .then(pl.lit("Week 1"))
-          .when(pl.col("day") <= 14)
-          .then(pl.lit("Week 2"))
-          .when(pl.col("day") <= 21)
-          .then(pl.lit("Week 3"))
-          .when(pl.col("day") <= 28)
-          .then(pl.lit("Week 4"))
-          .otherwise(pl.lit("Week 5"))
-          .alias("week_of_month")
-    ])
-    return temp
 
 
 @st.cache_data(show_spinner=False)
@@ -150,9 +140,17 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
     if week_label == "Week 5":
         agg = agg.fill_null(0)
 
-    # Normalize by dividing by 3
+    # 统计数据集有多少不同的月份
+    if 'Date' in df_wk.columns:
+        month_count = df_wk.get_column('Date').cast(pl.Date).dt.strftime('%Y-%m').n_unique()
+    else:
+        month_count = 1
+    if month_count == 0:
+        month_count = 1
+
+    # Normalize by dividing by month_count
     hm_data = agg.with_columns([
-        (pl.col(col) / 3).round().cast(pl.Int64).alias(col) for col in hour_cols
+        (pl.col(col) / month_count).round().cast(pl.Int64).alias(col) for col in hour_cols
     ])
 
     return hm_data
@@ -211,14 +209,27 @@ def week_analysis():
         output = _compute_presence_matrix(df_pl)
 
     # —— 3. Add 'week_of_month' column to output (with cache) —— #
-    weekfile_detail = _assign_month_week(output)
+    output = output.with_columns([
+        pl.col("Date").dt.day().alias("day")
+    ]).with_columns([
+        pl.when(pl.col("day") <= 7)
+          .then(pl.lit("Week 1"))
+          .when(pl.col("day") <= 14)
+          .then(pl.lit("Week 2"))
+          .when(pl.col("day") <= 21)
+          .then(pl.lit("Week 3"))
+          .when(pl.col("day") <= 28)
+          .then(pl.lit("Week 4"))
+          .otherwise(pl.lit("Week 5"))
+          .alias("week_of_month")
+    ])
 
     # —— 4. Dropdown for user to select which week to display —— #
     selected_wk = st.selectbox("📊 Select Week to Display", _WEEKS_LIST)
 
     # —— 5. Compute the heatmap data for the selected week (with cache + spinner) —— #
     with st.spinner(f"Computing heatmap data for {selected_wk}…"):
-        hm_data_pl = _compute_week_hm_data(weekfile_detail, selected_wk)
+        hm_data_pl = _compute_week_hm_data(output, selected_wk)
         hm_data = hm_data_pl.to_pandas().set_index('weekday')
 
     # —— 6. Let user customize the chart title —— #
@@ -266,7 +277,7 @@ def week_analysis():
             with zipfile.ZipFile(png_zip, mode="w") as zf:
                 for wk in _WEEKS_LIST:
                     # Recompute this week's heatmap data:
-                    df_hm_pl = _compute_week_hm_data(weekfile_detail, wk)
+                    df_hm_pl = _compute_week_hm_data(output, wk)
                     df_hm = df_hm_pl.to_pandas().set_index('weekday')
 
                     # Get the user's custom title for this week from session_state:
@@ -302,7 +313,7 @@ def week_analysis():
             csv_zip = io.BytesIO()
             with zipfile.ZipFile(csv_zip, mode="w") as zf2:
                 for wk in _WEEKS_LIST:
-                    df_hm_pl = _compute_week_hm_data(weekfile_detail, wk)
+                    df_hm_pl = _compute_week_hm_data(output, wk)
                     df_hm = df_hm_pl.to_pandas().set_index('weekday')
                     csv_bytes = df_hm.to_csv().encode("utf-8")
                     zf2.writestr(f"{wk}_heatmap_data.csv", csv_bytes)

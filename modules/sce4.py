@@ -127,28 +127,46 @@ def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
     return monthly_summary
 
 @st.cache_data(show_spinner=False)
-def _weekday_total_summary(df_with_time: pl.DataFrame) -> pl.DataFrame:
+def _weekday_total_summary(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
     """
-    Group by 'weekday' on a DataFrame that already contains 24 columns (0–23) 
-    and a 'weekday' column, returning a 7×1 DataFrame named 'Total'.
+    Group by 'weekday' on a DataFrame that已经包含24小时列（0~23）和'weekday'列，
+    返回一个7×2的DataFrame，每行是weekday，Total为该weekday所有小时的总和，
+    再除以24和该weekday在[start_date, end_date]区间内的天数。
     """
-    # Get all hour columns
     hour_cols = [str(h) for h in range(24)]
-    # 先生成 Total 列
-    df_with_time = df_with_time.with_columns(
-        pl.sum_horizontal(hour_cols).alias('Total')
-    )
-    # 再 group_by
-    summed = (
+    # 按 weekday 分组，对每小时列求和
+    result = (
         df_with_time
         .group_by('weekday')
         .agg([
-            pl.col('Total').sum().alias('Total')
+            pl.col(col).sum().alias(col) for col in hour_cols
         ])
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    return summed
+    # 统计每个 weekday 在区间内的天数
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    date_list = []
+    cur = start_dt
+    while cur <= end_dt:
+        date_list.append(cur)
+        cur += timedelta(days=1)
+    day_counts = (
+        pl.DataFrame({'date': date_list})
+        .with_columns([
+            pl.col('date').dt.strftime('%A').alias('weekday')
+        ])
+        .group_by('weekday')
+        .count()
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+        .sort('weekday')
+    )
+    # 新增 Total 列
+    result = result.with_columns(
+        (pl.sum_horizontal(hour_cols) / 24 / day_counts.get_column('count')).alias('Total')
+    )
+    return result.select(['weekday', 'Total'])
 
 @st.cache_data(show_spinner=False)
 def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
@@ -296,10 +314,12 @@ def duration_month_analysis():
 
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
     with st.spinner("Aggregating total duration by weekday…"):
-        df2 = _weekday_total_summary(output)
+        start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+        end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
+        df2 = _weekday_total_summary(output, start_date, end_date)
 
     df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
-    title2 = st.text_input("Bar Chart Title", "Total Month Duration by Weekday", key="title2")
+    title2 = st.text_input("Bar Chart Title", "Average Hour Demand by Weekday", key="title2")
 
     fig2 = px.bar(
         df2_plot,
@@ -316,8 +336,8 @@ def duration_month_analysis():
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
     # Use the actual data range for start_date/end_date
-    start_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).min().strftime('%Y-%m-%d')
-    end_date = df.get_column('Date').cast(pl.String).str.strptime(pl.Date, None).max().strftime('%Y-%m-%d')
+    start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+    end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
     
     with st.spinner("Calculating normalized heatmap data…"):
         agg_df = _compute_normalized_heatmap(output, start_date, end_date)

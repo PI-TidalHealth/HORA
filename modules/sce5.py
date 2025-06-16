@@ -16,6 +16,36 @@ _TIME_BIN_END   = [datetime.strptime(f"{_REFERENCE_DATE}{(h+1)%24:02d}:00", "%Y-
 _WEEKDAY_ORDER  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 _WEEKS_LIST     = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
 
+@st.cache_data(show_spinner=False)
+def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
+    """Parse time series data and handle edge cases."""
+    # Drop rows with null values in In Room or Out Room
+    temp = df.filter(
+        ~pl.col('In Room').is_null() & 
+        ~pl.col('Out Room').is_null()
+    )
+    
+
+    temp = temp.with_columns([
+        (pl.col('Date').cast(str) + ' ' + pl.col('In Room')).alias('In_str'),
+        (pl.col('Date').cast(str) + ' ' + pl.col('Out Room')).alias('Out_str')
+    ])
+    
+    # Then convert to datetime by adding reference date
+    temp = temp.with_columns([
+        pl.col('In_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('In_dt'),
+        pl.col('Out_str').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M').alias('Out_dt')
+    ])
+    
+    # Handle cross-day cases
+    temp = temp.with_columns([
+        pl.when(pl.col('Out_dt') < pl.col('In_dt'))
+            .then(pl.col('Out_dt') + timedelta(days=1))
+            .otherwise(pl.col('Out_dt'))
+            .alias('Out_dt')
+    ])
+    print(temp)
+    return temp
 
 @st.cache_data(show_spinner=False)
 def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
@@ -78,7 +108,6 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
 
     return pl.from_pandas(result.reset_index())
 
-
 @st.cache_data(show_spinner=False)
 def _assign_month_week(df: pl.DataFrame) -> pl.DataFrame:
     """
@@ -121,7 +150,7 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
     Filter df_with_time by a given week_label ('Week 1'…'Week 5') and generate a 7×24 heatmap DataFrame:
     1. Group by 'weekday' × hours 0–23 to get raw_counts;
     2. If week_label is 'Week 5', fill NaN with 0;
-    3. Divide by 3, round, and convert to int.
+    3. Divide by数据集的月份数, round, and convert to int.
     Return a sorted DataFrame with index _WEEKDAY_ORDER and columns 0–23.
     """
     # First ensure all hour columns exist with default 0
@@ -158,9 +187,17 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
     if week_label == "Week 5":
         agg = agg.fill_null(0)
 
-    # Normalize by dividing by 3
+    # 统计数据集有多少不同的月份
+    if 'Date' in df_wk.columns:
+        month_count = df_wk.get_column('Date').cast(pl.Date).dt.strftime('%Y-%m').n_unique()
+    else:
+        month_count = 1
+    if month_count == 0:
+        month_count = 1
+
+    # Normalize by dividing by month_count
     hm_data = agg.with_columns([
-        (pl.col(col) / 3).round().cast(pl.Int64).alias(col) for col in hour_cols
+        (pl.col(col) / month_count).round().cast(pl.Int64).alias(col) for col in hour_cols
     ])
 
     return hm_data
@@ -202,11 +239,16 @@ def duration_week_analysis():
     # Convert Date column more robustly
     try:
         df_pl = df_pl.with_columns([
-            pl.col("Date")
-              .cast(pl.String)
-              .str.replace_all("/", "-")
-              .str.strptime(pl.Date, format="%Y-%m-%d")
-              .alias("Date")
+            # First standardize the format by replacing all separators with '/'
+            pl.col('Date').str.replace_all(r'[-.]', '/').alias('Date')
+        ]).with_columns([
+            # Then try both date formats with strict=False
+            pl.when(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=False).is_not_null())
+                .then(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=False))
+                .otherwise(
+                    pl.col('Date').str.strptime(pl.Date, format='%m/%d/%Y', strict=False)
+                )
+                .alias('Date')
         ])
     except:
         # Fallback: if above fails, try without format conversion
