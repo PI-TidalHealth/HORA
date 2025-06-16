@@ -77,7 +77,7 @@ def duration_month_analysis():
         monthly_summary = _compute_monthly_summary(df)
 
     # Handle title for pie chart (only initialize once)
-    title1 = st.text_input("Pie Chart Title", "Monthly Duration", key="title1")
+    title1 = st.text_input("Pie Chart Title", "Number of Record for Month", key="title1")
 
     # Create pie chart
     fig1 = px.pie(

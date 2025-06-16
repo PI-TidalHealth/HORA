@@ -83,26 +83,19 @@ def uploadstep1_page():
         try:
             # First standardize the format by replacing all separators with '/'
             df2 = df2.with_columns([
-                pl.col('Date').str.replace_all(r'[-.]', '/').alias('Date')
+                pl.col('Date').cast(str).str.replace_all(r'[-.]', '/').alias('Date')
             ])
             
             # Add debug information
-            st.write("Debug: Original dates after standardization:")
-            st.write(df2.select('Date').head().to_pandas())
+
             
             # Try parsing with both formats, but more strictly
             df2 = df2.with_columns([
-                pl.when(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=True).is_not_null())
-                    .then(pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=True))
-                    .otherwise(
-                        pl.col('Date').str.strptime(pl.Date, format='%m/%d/%Y', strict=True)
-                    )
-                    .alias('Date')
+                pl.col('Date').str.strptime(pl.Date, format='%Y/%m/%d', strict=False).alias('Date')
             ])
             
             # Add more debug information
-            st.write("Debug: Parsed dates:")
-            st.write(df2.select('Date').head().to_pandas())
+
             
         except Exception as e:
             st.error(f"Date parsing error: {str(e)}")
