@@ -3,34 +3,39 @@ from datetime import datetime, timedelta
 import streamlit as st
 from modules.layout import set_narrow
 
+import pandas as pd
+
 def uploadstep1_page():
-    #upload file
-    uploaded = st.session_state.get("uploaded_file", None)
-    if uploaded is None:
-        st.error("Please upload a file first.")
-        return
+    uploaded = st.session_state.get("preprocessed_result", None)
+    is_preprocessed = uploaded is not None
 
-    try:
-        name = uploaded.name.lower()
-        if name.endswith('.csv'):
-            df = pl.read_csv(uploaded)
-        elif name.endswith(('.xls', '.xlsx')):
-            df = pl.read_excel(uploaded)
-        else:
-            st.error("❌ Unsupported file format. Please upload a CSV or Excel file.")
+    if isinstance(uploaded, pd.DataFrame):
+        # It's already a DataFrame, just use it
+        df = pl.from_pandas(uploaded)
+    else:
+        # It's a file-like object
+        uploaded = st.session_state.get("uploaded_file", None)
+        if uploaded is None:
+            st.error("Please upload a file first.")
             return
-    except pl.NoDataError:
-        st.error("❌ The file appears to be empty.")
-        return
-    except Exception as e:
-        st.error(f"❌ Failed to read file: {str(e)}")
-        return
-
+        try:
+            name = uploaded.name.lower()
+            if name.endswith('.csv'):
+                df = pl.read_csv(uploaded)
+            elif name.endswith(('.xls', '.xlsx')):
+                df = pl.read_excel(uploaded)
+            else:
+                st.error("❌ Unsupported file format. Please upload a CSV or Excel file.")
+                return
+        except Exception as e:
+            st.error(f"❌ Failed to read file: {str(e)}")
+            return
+    # Now you can use `df` for further processing
     #select columns
     st.title("Select Your Columns")
     with st.form("col_selector_form"):
         raw_cols = df.columns
-        placeholder = [""]  
+        placeholder = [""]
         cols = placeholder + raw_cols
 
         cd = st.selectbox("Select **Date** column", cols, index=0)
@@ -282,29 +287,50 @@ def uploadstep1_page():
 
     # --------- ：Presence or Duration ---------  
     st.markdown("### Choose your Tracking Type")
-    choice = st.radio(
-        "", 
-        ("📈 Presence", "⏱ Duration"),
-        index=0 if st.session_state.get("analysis_type","presence")=="presence" else 1,
-        key="analysis_type_radio"
-    )
-    if choice.startswith("📈"):
+    if is_preprocessed:
+        # Only allow "Presence"
+        choice = st.radio(
+            "", 
+            ("📈 Presence",),
+            index=0,
+            key="analysis_type_radio"
+        )
         st.session_state.analysis_type = "presence"
     else:
-        st.session_state.analysis_type = "duration"
+        # Allow both options
+        choice = st.radio(
+            "", 
+            ("📈 Presence", "⏱ Duration"),
+            index=0 if st.session_state.get("analysis_type","presence")=="presence" else 1,
+            key="analysis_type_radio"
+        )
+        if choice.startswith("📈"):
+            st.session_state.analysis_type = "presence"
+        else:
+            st.session_state.analysis_type = "duration"
 
     # --------- ：Month or Week ---------  
     st.markdown("### Choose Your Analysis Scope")
-    view_choice = st.radio(
-        "",
-        ("📅 Month Analysis", "🗓️ Week Analysis"),
-        index=0 if st.session_state.get("analysis_view","month")=="month" else 1,
-        key="analysis_view_radio"
-    )
-    if view_choice.startswith("📅"):
+    if is_preprocessed:
+        # Only allow "Month Analysis"
+        view_choice = st.radio(
+            "",
+            ("📅 Month Analysis",),
+            index=0,
+            key="analysis_view_radio"
+        )
         st.session_state.analysis_view = "month"
     else:
-        st.session_state.analysis_view = "week"
+        view_choice = st.radio(
+            "",
+            ("📅 Month Analysis", "🗓️ Week Analysis"),
+            index=0 if st.session_state.get("analysis_view","month")=="month" else 1,
+            key="analysis_view_radio"
+        )
+        if view_choice.startswith("📅"):
+            st.session_state.analysis_view = "month"
+        else:
+            st.session_state.analysis_view = "week"
  
     btn_col1, btn_col2, btn_col3 = st.columns([1,1,1])
     with btn_col1:
@@ -327,15 +353,18 @@ def uploadstep1_page():
             st.rerun()
     with btn_col3:
         if st.button("Next ➡️"):
-            mode = st.session_state.analysis_type    # "presence" or "duration"
-            view = st.session_state.analysis_view      # "month" or "week"
+            if is_preprocessed:
+                st.session_state.page = "sce2(capacity)"
+            else:
+                mode = st.session_state.analysis_type    # "presence" or "duration"
+                view = st.session_state.analysis_view      # "month" or "week"
 
-            if mode == "presence" and view == "month":
-                st.session_state.page = "sce2"
-            elif mode == "presence" and view == "week":
-                st.session_state.page = "sce3"
-            elif mode == "duration" and view == "month":
-                st.session_state.page = "sce4"
-            else:  # duration + week
-                st.session_state.page = "sce5"
+                if mode == "presence" and view == "month":
+                    st.session_state.page = "sce2"
+                elif mode == "presence" and view == "week":
+                    st.session_state.page = "sce3"
+                elif mode == "duration" and view == "month":
+                    st.session_state.page = "sce4"
+                else:  # duration + week
+                    st.session_state.page = "sce5"
             st.rerun()
