@@ -1,4 +1,6 @@
 import streamlit as st
+from pathlib import Path
+from modules.layout import set_narrow
 
 def render_upload_page():
     set_narrow(800)

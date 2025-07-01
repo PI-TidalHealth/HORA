@@ -5,6 +5,7 @@ from modules.sce2 import month_analysis
 from modules.sce4 import duration_month_analysis
 from modules.sce5 import duration_week_analysis
 from modules.step1 import uploadstep1_page
+from modules.sce2_capacity import month_capacity_analysis 
 import streamlit as st 
 #Streamlit 
 st.set_page_config(
@@ -29,3 +30,5 @@ elif st.session_state.page == "sce4":
     duration_month_analysis()
 elif st.session_state.page == "sce5":
     duration_week_analysis()
+elif st.session_state.page == "sce2_capacity":
+    month_capacity_analysis()

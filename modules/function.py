@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import streamlit as st
 import plotly.express as px
 import io
+import re
 import matplotlib
 import pandas as pd
 _WEEKS_LIST     = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
@@ -332,3 +333,105 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
     result['weekday'] = pd.to_datetime(result.index).strftime('%A')
 
     return pl.from_pandas(result.reset_index())
+
+#Please read the README.md before you run the code
+def process_schedule_excel(
+    excel_path,
+    start_date_str='2025/01/01',
+    end_date_str='2025/03/31',
+    output_csv='heatmap.csv'
+):
+    try:
+            df = pd.read_csv(excel_path)
+    except Exception:
+            df = pd.read_excel(excel_path, header=None)
+
+    df_raw = df.iloc[:, 0:49]
+    rows_to_keep = [1, 2, -1]
+    df_raw = df_raw.iloc[rows_to_keep]
+    weekday_cols = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    result = []
+    n_cols = df_raw.shape[1]
+    for start in range(0, n_cols, 7):
+        sheet_val = df_raw.iloc[0, start]
+        if pd.isna(sheet_val):
+            continue
+        # Replace "GOR" with "3:30p-7a"
+        if isinstance(sheet_val, str) and sheet_val.strip().upper() == "GOR":
+            sheet_val = "3p-7a"
+        # Extract time range like 7a-7a, 8a-4p, 3:30p-7a, etc.
+        elif isinstance(sheet_val, str):
+            match = re.search(r'(\d{1,2}(?::\d{2})?[ap]-\d{1,2}(?::\d{2})?[ap])', sheet_val, re.IGNORECASE)
+            if match:
+                sheet_val = match.group(1)
+        counts = df_raw.iloc[2, start:start+7].tolist()
+        row = {'Sheet': sheet_val}
+        for i, day in enumerate(weekday_cols):
+            row[day] = counts[i] if i < len(counts) else 0
+        result.append(row)
+
+    df_result = pd.DataFrame(result)
+    df_result.replace(['', ' '], 0, inplace=True)
+    df_result.fillna(0, inplace=True)
+
+
+    def parse_time_interval(s):
+        s = s.replace(' ', '')
+        # 1. 处理 7a-3:30p 这种格式
+        match = re.match(r'(\d{1,2})(?::(\d{2}))?([ap])-(\d{1,2})(?::(\d{2}))?([ap])', s)
+        if match:
+            h1, m1, ap1, h2, m2, ap2 = match.groups()
+            m1 = m1 or '00'
+            m2 = m2 or '00'
+            t1 = f"{int(h1):02d}:{m1} {ap1}m"
+            t2 = f"{int(h2):02d}:{m2} {ap2}m"
+            t1 = pd.to_datetime(t1, format='%I:%M %p').strftime('%H:%M')
+            t2 = pd.to_datetime(t2, format='%I:%M %p').strftime('%H:%M')
+            return t1, t2
+
+        match = re.match(r'(\d{2}):?(\d{2})-(\d{2}):?(\d{2})', s)
+        if match:
+            h1, m1, h2, m2 = match.groups()
+            t1 = f"{h1}:{m1}"
+            t2 = f"{h2}:{m2}"
+            return t1, t2
+        return '', ''
+
+    df_result[['In Time', 'Out Time']] = df_result['Sheet'].apply(lambda x: pd.Series(parse_time_interval(str(x))))
+
+    df_result = df_result.drop(columns=['Sheet'])
+
+
+    cols = ['In Time', 'Out Time'] + [col for col in df_result.columns if col not in ['In Time', 'Out Time']]
+    df = df_result[cols]
+
+    start_date = datetime.strptime(start_date_str, '%Y/%m/%d')
+    end_date = datetime.strptime(end_date_str, '%Y/%m/%d')
+    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    virtual_dates = {day: [] for day in weekday_cols}
+    for d in all_dates:
+        weekday = d.strftime('%A')
+        if weekday in virtual_dates:
+            virtual_dates[weekday].append(d.strftime('%Y/%m/%d'))
+
+
+    result = []
+    for _, row in df.iterrows():
+        for day in weekday_cols:
+            count = int(row[day])
+            dates_for_day = virtual_dates[day]
+            n_dates = len(dates_for_day)
+            for i in range(count):
+                # 用取余的方式循环取日期
+                date = dates_for_day[i % n_dates]
+                result.append({
+                    'Date': date,
+                    'Weekday': day,
+                    'In Time': row['In Time'],
+                    'Out Time': row['Out Time']
+                })
+
+    result_df = pd.DataFrame(result)
+    result_df.to_csv("output.csv", index=False)
+    return result_df
