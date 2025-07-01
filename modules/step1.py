@@ -354,7 +354,7 @@ def uploadstep1_page():
     with btn_col3:
         if st.button("Next ➡️"):
             if is_preprocessed:
-                st.session_state.page = "sce2(capacity)"
+                st.session_state.page = "sce2_capacity"
             else:
                 mode = st.session_state.analysis_type    # "presence" or "duration"
                 view = st.session_state.analysis_view      # "month" or "week"
