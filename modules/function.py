@@ -334,12 +334,12 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
 
     return pl.from_pandas(result.reset_index())
 
+
 #Please read the README.md before you run the code
 def process_schedule_excel(
     excel_path,
     start_date_str='2025/01/01',
     end_date_str='2025/03/31',
-    output_csv='heatmap.csv'
 ):
     try:
             df = pd.read_csv(excel_path)
@@ -347,7 +347,7 @@ def process_schedule_excel(
             df = pd.read_excel(excel_path, header=None)
 
     df_raw = df.iloc[:, 0:49]
-    rows_to_keep = [1, 2, -1]
+    rows_to_keep = [0, 1, -1]
     df_raw = df_raw.iloc[rows_to_keep]
     weekday_cols = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     result = []
