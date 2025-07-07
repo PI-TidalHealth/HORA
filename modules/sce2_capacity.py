@@ -51,13 +51,11 @@ def month_capacity_analysis():
         df = pl.from_pandas(df)
     df = df.clone()
     
-    # Standardize Date column
-    df = df.with_columns([
-        pl.col('Date')
-            .cast(pl.String)
-            .str.strptime(pl.Date, format='%Y/%m/%d')
-            .alias('Date')
-    ])
+    # The 'Date' column is already in a proper datetime format from the upload step.
+    # No need to standardize it again. We just need to ensure it's a Polars Date type
+    # if it's not already.
+    if df.schema['Date'] != pl.Date:
+        df = df.with_columns(pl.col('Date').cast(pl.Date))
     
     # Add weekday column
     df = df.with_columns([

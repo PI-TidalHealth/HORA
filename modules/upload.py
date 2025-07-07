@@ -88,6 +88,18 @@ def render_upload_page():
             final_df_pd['Count'] = 1
             # --- End of auto-selection ---
             
+            # --- Calculate total months for normalization ---
+            if not final_df_pd.empty:
+                # Ensure 'Date' column is in datetime format
+                final_df_pd['Date'] = pd.to_datetime(final_df_pd['Date'])
+                # Calculate the number of unique months
+                total_months = final_df_pd['Date'].dt.to_period('M').nunique()
+            else:
+                total_months = 1 # Avoid division by zero if dataframe is empty
+            
+            st.session_state['total_months'] = total_months
+            # --- End of total months calculation ---
+
             # Convert to Polars DataFrame for consistency with other pages
             crna_data_pl = pl.from_pandas(final_df_pd)
 

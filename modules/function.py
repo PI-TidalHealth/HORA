@@ -346,12 +346,10 @@ def process_schedule_excel(
             df = pd.read_csv(excel_path, header=None)
     except Exception:
             df = pd.read_excel(excel_path, header=None)
-    print(df)
 
     df_raw = df.iloc[:, 0:49]
     rows_to_keep = [0, 1, -1]
     df_raw = df_raw.iloc[rows_to_keep]
-    print(df_raw)
     weekday_cols = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     result = []
     n_cols = df_raw.shape[1]
@@ -399,7 +397,6 @@ def process_schedule_excel(
             t2 = f"{h2}:{m2}"
             return t1, t2
         return '', ''
-
     df_result[['In Time', 'Out Time']] = df_result['Sheet'].apply(lambda x: pd.Series(parse_time_interval(str(x))))
 
     df_result = df_result.drop(columns=['Sheet'])
@@ -407,6 +404,15 @@ def process_schedule_excel(
 
     cols = ['In Time', 'Out Time'] + [col for col in df_result.columns if col not in ['In Time', 'Out Time']]
     df = df_result[cols]
+
+    # --- FIX: Filter out any non-numeric rows before iterating ---
+    # This will safely convert columns to numeric, and non-numeric values (like 'Totals') will become NaN
+    for day in weekday_cols:
+        df[day] = pd.to_numeric(df[day], errors='coerce')
+    
+    # Now, drop rows where any of the weekday columns are NaN, which removes the 'Totals' row
+    df = df.dropna(subset=weekday_cols)
+    # --- End of FIX ---
 
     start_date = datetime.strptime(start_date_str, '%Y/%m/%d')
     end_date = datetime.strptime(end_date_str, '%Y/%m/%d')
@@ -422,20 +428,37 @@ def process_schedule_excel(
     result = []
     for _, row in df.iterrows():
         for day in weekday_cols:
-            count = int(row[day])
-            dates_for_day = virtual_dates[day]
-            n_dates = len(dates_for_day)
-            for i in range(count):
-                # 用取余的方式循环取日期
-                date = dates_for_day[i % n_dates]
-                result.append({
-                    'Date': date,
-                    'Weekday': day,
-                    'In Time': row['In Time'],
-                    'Out Time': row['Out Time']
-                })
+            total_required = int(row[day])
+            if total_required == 0:
+                continue
+
+            available_dates = virtual_dates.get(day, [])
+            if not available_dates:
+                continue
+
+            n_available = len(available_dates)
+            
+            # --- Uniformly distribute the required count across available dates ---
+            # Base number of assignments for each available date
+            base_count = total_required // n_available
+            # Number of dates that will get one extra assignment
+            remainder = total_required % n_available
+
+            assignments = [base_count] * n_available
+            for i in range(remainder):
+                assignments[i] += 1
+            # --- End of distribution logic ---
+
+            for i, date in enumerate(available_dates):
+                num_assignments_for_this_date = assignments[i]
+                for _ in range(num_assignments_for_this_date):
+                    result.append({
+                        'Date': date,
+                        'Weekday': day,
+                        'In Time': row['In Time'],
+                        'Out Time': row['Out Time']
+                    })
 
     result_df = pd.DataFrame(result)
     result_df.to_csv("output.csv", index=False)
-    print(result_df)
     return result_df
