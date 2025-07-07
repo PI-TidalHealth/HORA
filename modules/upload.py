@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import polars as pl
 import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
@@ -71,16 +72,32 @@ def render_upload_page():
                 tmp_file.write(uploaded.getbuffer())
                 tmp_path = tmp_file.name
 
-            result_df = process_schedule_excel(
+            # process_schedule_excel returns a pandas DataFrame
+            result_df_pd = process_schedule_excel(
                 tmp_path,
                 start_date_str=processing_info["start_date"],
                 end_date_str=processing_info["end_date"]
             )
-            st.session_state.preprocessed_result = result_df
-            st.session_state.uploaded_file = uploaded
-            st.session_state.page = "step1"
+            
+            # --- Auto-select columns and prepare for analysis ---
+            # Keep only the necessary columns and rename them for consistency
+            final_df_pd = result_df_pd[['Date', 'In Time', 'Out Time']].copy()
+            final_df_pd.rename(columns={'In Time': 'In Room', 'Out Time': 'Out Room'}, inplace=True)
 
-            # Clean up session state
+            # Add a 'Count' column, defaulting to 1, similar to the demand flow
+            final_df_pd['Count'] = 1
+            # --- End of auto-selection ---
+            
+            # Convert to Polars DataFrame for consistency with other pages
+            crna_data_pl = pl.from_pandas(final_df_pd)
+
+            # Set the data and analysis parameters directly for the next page
+            st.session_state["crna_data"] = crna_data_pl
+            st.session_state.analysis_type = "presence"
+            st.session_state.analysis_view = "month"
+
+            st.session_state.page = "sce2_capacity"
+
             del st.session_state.run_processing
             if "show_capacity_date_dialog" in st.session_state:
                 del st.session_state.show_capacity_date_dialog

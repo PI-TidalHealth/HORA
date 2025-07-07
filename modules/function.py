@@ -342,13 +342,16 @@ def process_schedule_excel(
     end_date_str='2025/03/31',
 ):
     try:
-            df = pd.read_csv(excel_path)
+            # FIX: Added header=None to correctly read CSV files
+            df = pd.read_csv(excel_path, header=None)
     except Exception:
             df = pd.read_excel(excel_path, header=None)
+    print(df)
 
     df_raw = df.iloc[:, 0:49]
     rows_to_keep = [0, 1, -1]
     df_raw = df_raw.iloc[rows_to_keep]
+    print(df_raw)
     weekday_cols = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     result = []
     n_cols = df_raw.shape[1]
@@ -434,4 +437,5 @@ def process_schedule_excel(
 
     result_df = pd.DataFrame(result)
     result_df.to_csv("output.csv", index=False)
+    print(result_df)
     return result_df
