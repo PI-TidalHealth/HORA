@@ -216,6 +216,64 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
     return normalized.fill_null(0)
 
 @st.cache_data(show_spinner=False)
+def _weekday_total_summary_capacity(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
+    """
+    Groups by 'weekday', sums the hourly demand, and calculates the average
+    daily demand based on the number of occurrences of each weekday within the
+    specified date range.
+    """
+    hour_cols = [str(h) for h in range(24)]
+    
+    # --- FIX: Robustly count weekdays in the specified date range ---
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # Create a DataFrame of all dates in the range
+    all_dates_df = pl.DataFrame({
+        'date': pl.date_range(start_dt, end_dt, "1d", eager=True)
+    })
+    
+    # Get the weekday for each date
+    all_dates_df = all_dates_df.with_columns(
+        pl.col('date').dt.strftime('%A').alias('weekday')
+    )
+    
+    # Count occurrences of each weekday
+    day_counts = all_dates_df.group_by('weekday').count()
+    
+    # Ensure all weekdays are present and in the correct order
+    weekday_template = pl.DataFrame({
+        'weekday': _WEEKDAY_ORDER
+    })
+    
+    day_counts = weekday_template.join(
+        day_counts, on='weekday', how='left'
+    ).with_columns(
+        pl.col('count').fill_null(0) # Fill missing weekdays with 0 count
+    )
+    # --- End of FIX ---
+
+    # Group by weekday and sum the hourly columns
+    result = (
+        df_with_time
+        .group_by('weekday')
+        .agg([
+            pl.col(col).sum().alias(col) for col in hour_cols
+        ])
+        .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
+    )
+
+    # Join with day_counts to get the correct divisor
+    result = result.join(day_counts, on='weekday', how='left')
+
+    # Calculate Total as the sum of all hours, divided by 24 and the number of days
+    result = result.with_columns(
+        (pl.sum_horizontal(hour_cols) / 24 / pl.col('count')).fill_nan(0).alias('Total')
+    )
+    
+    return result.select(['weekday', 'Total'])
+
+@st.cache_data(show_spinner=False)
 def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.DataFrame:
     """
     Filter df_with_time by a given week_label ('Week 1'…'Week 5') and generate a 7×24 heatmap DataFrame:

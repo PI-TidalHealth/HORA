@@ -10,7 +10,7 @@ import pandas as pd
 from modules.function import _parse_time_series
 from modules.function import _compute_presence_matrix
 from modules.function import _compute_monthly_summary
-from modules.function import _weekday_total_summary
+from modules.function import _weekday_total_summary_capacity
 from modules.function import _compute_normalized_heatmap
 
 # Constants
@@ -87,7 +87,7 @@ def month_capacity_analysis():
     # --- End of using selected dates ---
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
     with st.spinner("Aggregating total demand by weekday…"):
-        df2 = _weekday_total_summary(output, start_date, end_date)
+        df2 = _weekday_total_summary_capacity(output, start_date, end_date)
 
     df2 = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
 
