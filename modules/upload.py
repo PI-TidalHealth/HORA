@@ -107,6 +107,9 @@ def render_upload_page():
             st.session_state["crna_data"] = crna_data_pl
             st.session_state.analysis_type = "presence"
             st.session_state.analysis_view = "month"
+            
+            st.session_state.start_date_str = processing_info["start_date"]
+            st.session_state.end_date_str = processing_info["end_date"]
 
             st.session_state.page = "sce2_capacity"
 

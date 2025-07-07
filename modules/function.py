@@ -346,7 +346,7 @@ def process_schedule_excel(
             df = pd.read_csv(excel_path, header=None)
     except Exception:
             df = pd.read_excel(excel_path, header=None)
-
+    print(df)
     df_raw = df.iloc[:, 0:49]
     rows_to_keep = [0, 1, -1]
     df_raw = df_raw.iloc[rows_to_keep]
@@ -461,4 +461,5 @@ def process_schedule_excel(
 
     result_df = pd.DataFrame(result)
     result_df.to_csv("output.csv", index=False)
+    print(result_df)
     return result_df

@@ -69,8 +69,22 @@ def month_capacity_analysis():
     # —— 3. Compute Presence matrix (with cache + spinner) —— #
     with st.spinner("Computing presence matrix, may take a few seconds…"):
         output = _compute_presence_matrix(df)
-    start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
-    end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
+        
+    start_date_str_slash = st.session_state.get('start_date_str')
+    end_date_str_slash = st.session_state.get('end_date_str')
+
+    if start_date_str_slash and end_date_str_slash:
+        # Convert from YYYY/MM/DD to YYYY-MM-DD for downstream functions
+        start_date = datetime.strptime(start_date_str_slash, '%Y/%m/%d').strftime('%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str_slash, '%Y/%m/%d').strftime('%Y-%m-%d')
+    else:
+        # Fallback if dates are not in session state
+        start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+        end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
+    # --- End of date handling ---
+    print(start_date)
+    print(end_date)
+    # --- End of using selected dates ---
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
     with st.spinner("Aggregating total demand by weekday…"):
         df2 = _weekday_total_summary(output, start_date, end_date)
