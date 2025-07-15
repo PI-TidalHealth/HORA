@@ -9,7 +9,6 @@ import io
 import numpy as np
 import pandas as pd
 from modules.function import _parse_time_series
-
 from modules.function import _compute_monthly_summary
 from modules.function import _weekday_total_summary
 from modules.function import _compute_normalized_heatmap
@@ -207,7 +206,9 @@ def duration_month_analysis():
             file_name=f"{title3}.png",
             mime="image/png"
         )
-        csv3 = df_plot.to_csv().encode("utf-8")
+        flattened_data = df_plot.values.flatten(order='C')
+        df_transformed = pd.DataFrame(flattened_data)
+        csv3 = df_transformed.to_csv(index=False, header=['Demand']).encode("utf-8")
         st.download_button(
             label="📥 CSV",
             data=csv3,

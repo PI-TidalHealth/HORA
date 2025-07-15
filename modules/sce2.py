@@ -231,7 +231,9 @@ def month_analysis():
             file_name=f"{title3}.png",
             mime="image/png"
         )
-        csv3 = df_plot.to_csv().encode("utf-8")
+        flattened_data = df_plot.values.flatten(order='C')
+        df_transformed = pd.DataFrame(flattened_data)
+        csv3 = df_transformed.to_csv(index=False, header=['Demand']).encode("utf-8")
         st.download_button(
             label="📥 CSV",
             data=csv3,

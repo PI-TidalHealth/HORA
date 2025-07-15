@@ -152,7 +152,9 @@ def duration_week_analysis():
                 file_name=f"{title_input}.png",
                 mime="image/png"
             )
-            csv_bytes = hm_data.to_csv().encode("utf-8")
+            flattened_data = hm_data.values.flatten(order='C')
+            df_transformed = pd.DataFrame(flattened_data)
+            csv_bytes = df_transformed.to_csv(index=False, header=['Demand']).encode("utf-8")
             st.download_button(
                 label="📥 CSV",
                 data=csv_bytes,
@@ -192,13 +194,18 @@ def duration_week_analysis():
                 for wk in _WEEKS_LIST:
                     df_hm_pl = _compute_week_hm_data(weekfile_detail, wk)
                     df_hm = df_hm_pl.to_pandas().set_index('weekday')
-                    csv_bytes = df_hm.to_csv().encode("utf-8")
-                    zf2.writestr(f"{wk}_duration_heatmap_data.csv", csv_bytes)
+                    
+                    # Flatten the DataFrame to a single column with a 'Capacity' header
+                    flattened_data = df_hm.values.flatten(order='C')
+                    df_transformed = pd.DataFrame(flattened_data, columns=['Demand'])
+                    csv_bytes = df_transformed.to_csv(index=False).encode("utf-8")
+                    
+                    zf2.writestr(f"{wk}_heatmap_data.csv", csv_bytes)
             csv_zip.seek(0)
             st.download_button(
                 label="📥 CSVs",
                 data=csv_zip.getvalue(),
-                file_name="all_weeks_duration_heatmap_data.zip",
+                file_name="all_weeks_heatmap_data.zip",
                 mime="application/zip"
             )
 
