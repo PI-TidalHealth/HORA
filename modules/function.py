@@ -43,7 +43,6 @@ def _parse_time_series(df: pl.DataFrame) -> pl.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    # 1. 解析时间
     df = df.to_pandas()
     df = df.copy()
     df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
@@ -51,7 +50,6 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
     # 跨天处理
     df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
-    # 2. 生成每小时的时间点列表
     def hour_range(row):
         start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
         end = row['Out_dt']
@@ -65,11 +63,9 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
     df['hour_ts'] = df.apply(hour_range, axis=1)
     df_exploded = df.explode('hour_ts')
 
-    # 3. 提取日期、小时
     df_exploded['Date'] = df_exploded['hour_ts'].dt.date
     df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
 
-    # 4. 按日期和小时统计 presence
     result = (
         df_exploded
         .groupby(['Date', 'hour'], as_index=False)['Count']
@@ -79,14 +75,12 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
         .astype(int)
     )
 
-    # 5. 补齐所有小时列
     for h in range(24):
         if h not in result.columns:
             result[h] = 0
     result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
     result = result.sort_index(axis=1)
 
-    # 6. 加 weekday 列
     result['weekday'] = pd.to_datetime(result.index).strftime('%A')
     print(result)
 
@@ -111,13 +105,7 @@ def _compute_monthly_summary(df: pl.DataFrame) -> pl.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def _weekday_total_summary(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
-    """
-    Group by 'weekday' on a DataFrame that已经包含24小时列（0~23）和'weekday'列，
-    返回一个7×2的DataFrame，每行是weekday，Total为该weekday所有小时的总和，
-    再除以24和该weekday在[start_date, end_date]区间内的天数。
-    """
     hour_cols = [str(h) for h in range(24)]
-    # 按 weekday 分组，对每小时列求和
     result = (
         df_with_time
         .group_by('weekday')
@@ -127,7 +115,6 @@ def _weekday_total_summary(df_with_time: pl.DataFrame, start_date: str, end_date
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    # 统计每个 weekday 在区间内的天数
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
     end_dt = datetime.strptime(end_date, '%Y-%m-%d')
     date_list = []
@@ -145,7 +132,6 @@ def _weekday_total_summary(df_with_time: pl.DataFrame, start_date: str, end_date
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    # 新增 Total 列
     result = result.with_columns(
         (pl.sum_horizontal(hour_cols) / 24 / day_counts.get_column('count')).alias('Total')
     )
@@ -182,7 +168,6 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         date_list.append(cur)
         cur += timedelta(days=1)
 
-    # 统计 presence matrix 里所有实际出现过的日期
     all_dates = df_with_time.get_column('Date').unique().to_list()
     date_df = pl.DataFrame({'date': all_dates})
     date_df = date_df.with_columns([
@@ -196,10 +181,8 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         .sort('weekday')
     )
     print(day_counts)
-    # 生成完整的 weekday DataFrame
     all_weekdays = pl.DataFrame({'weekday': _WEEKDAY_ORDER})
 
-    # 补齐 raw 和 day_counts
     raw = all_weekdays.join(raw, on='weekday', how='left').fill_null(0)
     day_counts = all_weekdays.join(day_counts, on='weekday', how='left').fill_null(0)
     
@@ -316,7 +299,6 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
     if week_label == "Week 5":
         agg = agg.fill_null(0)
 
-    # 统计数据集有多少不同的月份
     if 'Date' in df_wk.columns:
         month_count = df_wk.get_column('Date').cast(pl.Date).dt.strftime('%Y-%m').n_unique()
     else:
@@ -333,16 +315,12 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
 
 @st.cache_data(show_spinner=False)
 def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
-    # 1. 转为 pandas DataFrame
     df = df.to_pandas()
 
-    # 2. 解析时间
     df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
     df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
-    # 跨天处理
     df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
-    # 3. 生成每小时的时间点列表
     def hour_range(row):
         start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
         end = row['Out_dt']
@@ -356,11 +334,9 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
     df['hour_ts'] = df.apply(hour_range, axis=1)
     df_exploded = df.explode('hour_ts')
 
-    # 4. 提取日期、小时
     df_exploded['Date'] = df_exploded['hour_ts'].dt.date
     df_exploded['hour'] = df_exploded['hour_ts'].dt.hour
 
-    # 5. 计算每小时的 duration（小时数）
     def calc_duration(row):
         hour_start = row['hour_ts']
         hour_end = hour_start + timedelta(hours=1)
@@ -371,7 +347,6 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
 
     df_exploded['duration'] = df_exploded.apply(calc_duration, axis=1)
 
-    # 6. 按日期和小时统计 duration
     result = (
         df_exploded
         .groupby(['Date', 'hour'], as_index=False)['duration']
@@ -380,14 +355,12 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
         .fillna(0)
     )
 
-    # 7. 补齐所有小时列
     for h in range(24):
         if h not in result.columns:
             result[h] = 0.0
     result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
     result = result.sort_index(axis=1)
 
-    # 8. 加 weekday 列
     result['weekday'] = pd.to_datetime(result.index).strftime('%A')
 
     return pl.from_pandas(result.reset_index())
@@ -436,7 +409,6 @@ def process_schedule_excel(
 
     def parse_time_interval(s):
         s = s.replace(' ', '')
-        # 1. 处理 7a-3:30p 这种格式
         match = re.match(r'(\d{1,2})(?::(\d{2}))?([ap])-(\d{1,2})(?::(\d{2}))?([ap])', s)
         if match:
             h1, m1, ap1, h2, m2, ap2 = match.groups()
