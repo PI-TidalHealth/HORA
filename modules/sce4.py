@@ -157,43 +157,43 @@ def duration_month_analysis():
     plt.tight_layout()
 
     # —— 6. Display pie chart + bar chart in one row —— #
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.plotly_chart(fig1, use_container_width=True)
-        with st.expander("💾 Save ", expanded=False):
-            buf1 = io.BytesIO()
-            fig1.write_image(buf1, format="png", scale=2)
-            st.download_button(
-                label="🏞️ PNG",
-                data=buf1.getvalue(),
-                file_name=f"{title1}.png",
-                mime="image/png"
-            )
-            csv1 = monthly_summary.write_csv().encode("utf-8")
-            st.download_button(
-                label="📥 CSV",
-                data=csv1,
-                file_name=f"{title1}.csv",
-                mime="text/csv"
-            )
-    with col2:
-        st.plotly_chart(fig2, use_container_width=True)
-        with st.expander("💾 Save ", expanded=False):
-            buf2 = io.BytesIO()
-            fig2.write_image(buf2, format="png", scale=2)
-            st.download_button(
-                label="🏞️ PNG",
-                data=buf2.getvalue(),
-                file_name=f"{title2}.png",
-                mime="image/png"
-            )
-            csv2 = df2.write_csv().encode("utf-8")
-            st.download_button(
-                label="📥 CSV",
-                data=csv2,
-                file_name=f"{title2}.csv",
-                mime="text/csv"
-            )
+    # col1, col2 = st.columns([1, 2])
+    # with col1:
+    #     st.plotly_chart(fig1, use_container_width=True)
+    #     with st.expander("💾 Save ", expanded=False):
+    #         buf1 = io.BytesIO()
+    #         fig1.write_image(buf1, format="png", scale=2)
+    #         st.download_button(
+    #             label="🏞️ PNG",
+    #             data=buf1.getvalue(),
+    #             file_name=f"{title1}.png",
+    #             mime="image/png"
+    #         )
+    #         csv1 = monthly_summary.write_csv().encode("utf-8")
+    #         st.download_button(
+    #             label="📥 CSV",
+    #             data=csv1,
+    #             file_name=f"{title1}.csv",
+    #             mime="text/csv"
+    #         )
+    # with col2:
+    #     st.plotly_chart(fig2, use_container_width=True)
+    #     with st.expander("💾 Save ", expanded=False):
+    #         buf2 = io.BytesIO()
+    #         fig2.write_image(buf2, format="png", scale=2)
+    #         st.download_button(
+    #             label="🏞️ PNG",
+    #             data=buf2.getvalue(),
+    #             file_name=f"{title2}.png",
+    #             mime="image/png"
+    #         )
+    #         csv2 = df2.write_csv().encode("utf-8")
+    #         st.download_button(
+    #             label="📥 CSV",
+    #             data=csv2,
+    #             file_name=f"{title2}.csv",
+    #             mime="text/csv"
+    #         )
 
     # —— 7. Display heatmap in a new row —— #
     st.pyplot(fig3)
