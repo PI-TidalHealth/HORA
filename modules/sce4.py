@@ -114,8 +114,8 @@ def duration_month_analysis():
 
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
     with st.spinner("Aggregating total duration by weekday…"):
-        start_date = output.get_column('Date').min()
-        end_date = output.get_column('Date').max()
+        start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+        end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
         df2 = _weekday_total_summary(output, start_date, end_date)
 
     df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
