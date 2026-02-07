@@ -113,26 +113,26 @@ def duration_month_analysis():
         output = _compute_duration_matrix(df)
 
     # —— 4. Aggregate 'Total' by weekday (with cache + spinner) —— #
-    with st.spinner("Aggregating total duration by weekday…"):
-        start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
-        end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
-        df2 = _weekday_total_summary(output, start_date, end_date)
+    # with st.spinner("Aggregating total duration by weekday…"):
+    #     start_date = output.get_column('Date').min().strftime('%Y-%m-%d')
+    #     end_date = output.get_column('Date').max().strftime('%Y-%m-%d')
+    #     df2 = _weekday_total_summary(output, start_date, end_date)
 
-    df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
-    title2 = st.text_input("Bar Chart Title", "Average Hour Demand by Weekday", key="title2")
+    # df2_plot = df2.to_pandas().set_index('weekday').reindex(_WEEKDAY_ORDER).reset_index()
+    # title2 = st.text_input("Bar Chart Title", "Average Hour Demand by Weekday", key="title2")
 
-    fig2 = px.bar(
-        df2_plot,
-        x='weekday',
-        y='Total',
-        labels={'weekday': 'Day of Week', 'Total': 'Total Duration (hours)'},
-        text='Total',
-        template='plotly_white'
-    )
-    single_color = px.colors.qualitative.Plotly[0]
-    fig2.update_traces(marker_color=single_color)
-    fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
-    fig2.update_traces(texttemplate='%{text:.0f}')
+    # fig2 = px.bar(
+    #     df2_plot,
+    #     x='weekday',
+    #     y='Total',
+    #     labels={'weekday': 'Day of Week', 'Total': 'Total Duration (hours)'},
+    #     text='Total',
+    #     template='plotly_white'
+    # )
+    # single_color = px.colors.qualitative.Plotly[0]
+    # fig2.update_traces(marker_color=single_color)
+    # fig2.update_layout(title={'text': title2, 'x': 0.5, 'xanchor': 'center'})
+    # fig2.update_traces(texttemplate='%{text:.0f}')
 
     # —— 5. Normalized heatmap (with cache + spinner) —— #
     # Use the actual data range for start_date/end_date
