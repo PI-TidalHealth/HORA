@@ -76,37 +76,37 @@ def duration_month_analysis():
         monthly_summary = _compute_monthly_summary(df)
 
     # Handle title for pie chart (only initialize once)
-    title1 = st.text_input("Pie Chart Title", "Number of Record for Month", key="title1")
+    #title1 = st.text_input("Pie Chart Title", "Number of Record for Month", key="title1")
 
     # Create pie chart
-    fig1 = px.pie(
-        monthly_summary.to_pandas(),
-        values='Count',
-        names='MonthLabel',
-        hole=0.3,
-        category_orders={"MonthLabel": monthly_summary.get_column('MonthLabel').to_list()},
-        labels={'MonthLabel': 'Month', 'Count': 'Duration (hours)'},
-        custom_data=['Count']
-    )
+    # fig1 = px.pie(
+    #     monthly_summary.to_pandas(),
+    #     values='Count',
+    #     names='MonthLabel',
+    #     hole=0.3,
+    #     category_orders={"MonthLabel": monthly_summary.get_column('MonthLabel').to_list()},
+    #     labels={'MonthLabel': 'Month', 'Count': 'Duration (hours)'},
+    #     custom_data=['Count']
+    # )
     
     # Update all traces and layout at once
-    fig1.update_traces(
-        textposition='inside',
-        textinfo='percent+label',
-        hovertemplate="Month: %{label}<br>Duration: %{value} hours<extra></extra>"
-    )
+    # fig1.update_traces(
+    #     textposition='inside',
+    #     textinfo='percent+label',
+    #     hovertemplate="Month: %{label}<br>Duration: %{value} hours<extra></extra>"
+    # )
     
-    fig1.update_layout(
-        legend=dict(
-            orientation="h",
-            x=0.5, xanchor="center",
-            y=-0.1, yanchor="top"
-        ),
-        template="plotly_white",
-        title={"text": title1, "x": 0.5, "xanchor": "center"},
-        margin=dict(t=50, l=20, r=20, b=50),
-        height=450
-    )
+    # fig1.update_layout(
+    #     legend=dict(
+    #         orientation="h",
+    #         x=0.5, xanchor="center",
+    #         y=-0.1, yanchor="top"
+    #     ),
+    #     template="plotly_white",
+    #     title={"text": title1, "x": 0.5, "xanchor": "center"},
+    #     margin=dict(t=50, l=20, r=20, b=50),
+    #     height=450
+    # )
 
     # —— 3. Compute Duration matrix (with cache + spinner) —— #
     with st.spinner("Computing duration matrix, may take a few seconds…"):
