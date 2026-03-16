@@ -72,12 +72,12 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
         .sum()
         .pivot(index='Date', columns='hour', values='Count')
         .fillna(0)
-        .astype(int)
+        .astype(float)
     )
 
     for h in range(24):
         if h not in result.columns:
-            result[h] = 0
+            result[h] = 0.0
     result = result[[col for col in ['Date'] + list(range(24)) if col in result.columns]]
     result = result.sort_index(axis=1)
 
@@ -190,13 +190,12 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
     normalized = raw.with_columns([
         (pl.col(col) / day_counts.get_column('count'))
             .fill_nan(0)
-            .round()
-            .cast(pl.Int64)
+            .cast(pl.Float64)
             .alias(col)
         for col in hour_cols
     ])
     
-    return normalized.fill_null(0)
+    return normalized.fill_null(0.0)
 
 @st.cache_data(show_spinner=False)
 def _weekday_total_summary_capacity(df_with_time: pl.DataFrame, start_date: str, end_date: str) -> pl.DataFrame:
@@ -308,7 +307,7 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
 
     # Normalize by dividing by month_count
     hm_data = agg.with_columns([
-        (pl.col(col) / month_count).round().cast(pl.Int64).alias(col) for col in hour_cols
+        (pl.col(col) / month_count).cast(pl.Float64).alias(col) for col in hour_cols
     ])
 
     return hm_data
