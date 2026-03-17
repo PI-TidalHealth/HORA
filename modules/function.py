@@ -47,12 +47,11 @@ def _compute_presence_matrix(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
     df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
-    # 跨天处理
-    df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
+    df.loc[df['Out_dt'] < df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
     def hour_range(row):
         start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
-        end = row['Out_dt']
+        end = row['Out_dt'].replace(minute=0, second=0, microsecond=0)
         hours = []
         cur = start
         while cur < end:
@@ -319,11 +318,11 @@ def _compute_duration_matrix(df: pd.DataFrame) -> pl.DataFrame:
 
     df['In_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['In Room'])
     df['Out_dt'] = pd.to_datetime(df['Date'].astype(str) + ' ' + df['Out Room'])
-    df.loc[df['Out_dt'] <= df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
+    df.loc[df['Out_dt'] < df['In_dt'], 'Out_dt'] += pd.Timedelta(days=1)
 
     def hour_range(row):
         start = row['In_dt'].replace(minute=0, second=0, microsecond=0)
-        end = row['Out_dt']
+        end = row['Out_dt'].replace(minute=0, second=0, microsecond=0)
         hours = []
         cur = start
         while cur < end:
