@@ -101,7 +101,7 @@ def week_analysis():
 
     # —— 7. Plot the heatmap for the selected week —— #
     fig, ax = plt.subplots(figsize=(20, 5))
-    sns.heatmap(hm_data, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+    sns.heatmap(hm_data, annot=True, fmt=".2f", linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(title_input, fontdict={'fontsize': 18, 'fontweight': 'bold'}, loc='center', pad=20)
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
@@ -147,7 +147,7 @@ def week_analysis():
 
                     # Build a small figure for this week's heatmap:
                     fig_w, ax_w = plt.subplots(figsize=(20, 5))
-                    sns.heatmap(df_hm, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
+                    sns.heatmap(df_hm, annot=True, fmt=".2f", linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
 
                     # Use the user's custom title
                     ax_w.set_title(user_title, loc="center")
