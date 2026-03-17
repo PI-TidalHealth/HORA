@@ -134,7 +134,7 @@ def duration_week_analysis():
 
     # —— 7. Plot the heatmap for the selected week —— #
     fig, ax = plt.subplots(figsize=(20, 5))
-    sns.heatmap(hm_data, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+    sns.heatmap(hm_data, annot=True, fmt=".2f", linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(title_input, fontdict={'fontsize': 18, 'fontweight': 'bold'}, loc='center', pad=20)
     ax.set_ylabel("DOW", fontsize=14)
     plt.tight_layout()
@@ -174,7 +174,7 @@ def duration_week_analysis():
                     title_key = f"title_{wk}"
                     user_title = st.session_state.get(title_key, f"Duration for {wk}")
                     fig_w, ax_w = plt.subplots(figsize=(10, 3))
-                    sns.heatmap(df_hm, annot=True, linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
+                    sns.heatmap(df_hm, annot=True, fmt=".2f", linewidths=0.5, cmap="RdYlGn_r", ax=ax_w)
                     ax_w.set_title(user_title, loc="center")
                     plt.tight_layout()
                     buf_w = io.BytesIO()
