@@ -190,6 +190,7 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
     normalized = raw.with_columns([
         (pl.col(col) / day_counts.get_column('count'))
             .fill_nan(0)
+            .clip(upper_bound=1.00)
             .cast(pl.Float64)
             .alias(col)
         for col in hour_cols
