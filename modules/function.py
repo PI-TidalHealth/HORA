@@ -145,7 +145,9 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
     """
     # Get all hour columns
     hour_cols = [str(h) for h in range(24)]
-    
+    int_cols = [h for h in range(24) if h in df_with_time.columns]
+    if int_cols:
+        df_with_time = df_with_time.rename({h: str(h) for h in int_cols})
     # Sum by weekday for each hour
     raw = (
         df_with_time
@@ -156,7 +158,7 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    print(raw)
+    
     # Convert start/end to python datetime for robustness
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
     end_dt   = datetime.strptime(end_date, '%Y-%m-%d')
@@ -179,7 +181,6 @@ def _compute_normalized_heatmap(df_with_time: pl.DataFrame, start_date: str, end
         .filter(pl.col('weekday').is_in(_WEEKDAY_ORDER))
         .sort('weekday')
     )
-    print(day_counts)
     all_weekdays = pl.DataFrame({'weekday': _WEEKDAY_ORDER})
 
     raw = all_weekdays.join(raw, on='weekday', how='left').fill_null(0)
