@@ -123,7 +123,7 @@ def month_capacity_analysis():
         fig3.patch.set_facecolor("#0f1117")
         ax.set_facecolor("#0f1117")
         cbar_kws = {"format": "%d", "shrink": 0.98}
-        hm = sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax, cbar_kws=cbar_kws)
+        hm = sns.heatmap(df_plot, annot=True, fmt=".2f", linewidths=0.5, cmap='RdYlGn_r', ax=ax, cbar_kws=cbar_kws)
         ax.set_title(
             title3,
             fontdict={'fontsize': 18, 'fontweight': 'bold', 'color': 'white'},
@@ -141,7 +141,7 @@ def month_capacity_analysis():
         cbar.set_label(cbar.ax.get_ylabel(), color='white')
         cbar.ax.yaxis.label.set_color('white')
     else:
-        hm = sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+        hm = sns.heatmap(df_plot, annot=True, fmt=".2f", linewidths=0.5, cmap='RdYlGn_r', ax=ax)
         ax.set_title(
             title3,
             fontdict={'fontsize': 18, 'fontweight': 'bold'},
