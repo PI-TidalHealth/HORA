@@ -146,7 +146,7 @@ def duration_month_analysis():
     title3 = st.text_input("Heatmap Title", "Normalized Duration Heatmap", key="title3")
 
     fig3, ax = plt.subplots(figsize=(20, 5))
-    sns.heatmap(df_plot, annot=True, linewidths=0.5, cmap='RdYlGn_r', ax=ax)
+    sns.heatmap(df_plot, annot=True, fmt=".2f", linewidths=0.5, cmap='RdYlGn_r', ax=ax)
     ax.set_title(
         title3,
         fontdict={'fontsize': 18, 'fontweight': 'bold'},
