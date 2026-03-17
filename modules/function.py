@@ -308,7 +308,7 @@ def _compute_week_hm_data(df_with_time: pl.DataFrame, week_label: str) -> pl.Dat
 
     # Normalize by dividing by month_count
     hm_data = agg.with_columns([
-        (pl.col(col) / month_count).cast(pl.Float64).alias(col) for col in hour_cols
+        (pl.col(col) / month_count).clip(upper_bound=1.00).cast(pl.Float64).alias(col) for col in hour_cols
     ])
 
     return hm_data
